@@ -49,7 +49,8 @@ class BlockchainInterface(ABC):
                 )
 
             try:
-                self._web3 = Web3(Web3.HTTPProvider(self.rpc_url))
+                from runtime.blockchain.web3_manager import broadcast_safe_http_provider
+                self._web3 = Web3(broadcast_safe_http_provider(self.rpc_url))
             except Exception as e:
                 raise ConnectionError(
                     f"Failed to create Web3 provider for {self.rpc_url}: {e}"

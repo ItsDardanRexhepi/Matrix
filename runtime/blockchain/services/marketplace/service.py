@@ -11,6 +11,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.web3_manager import recorded_unsettled_response
+
 from .compliance_filter import ComplianceFilter
 from .appeals import AppealProcess
 from runtime.auth.identity import same_caller
@@ -104,16 +106,24 @@ class MarketplaceService:
         return {**listing, "compliance": compliance_result}
 
     async def buy_item(self, listing_id: str, buyer: str) -> dict:
-        """Purchase a listed item.
+        """Record a purchase of a listed item. NO PAYMENT IS TAKEN HERE.
 
-        Applies the platform fee and records the sale.
+        Computes the platform fee and records the sale, marking the listing
+        sold so it cannot be bought twice. It returned a bare sale record with
+        `completed_at`, no status and no disclosure — the plain-success shape —
+        so the dispatcher EAS-attested a completed purchase and the public feed
+        announced it at its price, with no payment taken from the buyer, none
+        paid to the seller and no fee collected. The sale is the same record
+        as `GamingService.trade_item` now is: written down, and saying that
+        nothing moved.
 
         Args:
             listing_id: The listing to purchase.
             buyer: Buyer's wallet address.
 
         Returns:
-            Sale record with fee breakdown.
+            Sale record with fee breakdown, `status: "recorded_unsettled"`,
+            `settled: False` and `value_moved: False`.
         """
         if not buyer:
             raise ValueError("buyer is required")
@@ -133,18 +143,27 @@ class MarketplaceService:
         sale_id = f"sale_{uuid.uuid4().hex[:12]}"
         now = time.time()
 
-        sale = {
-            "sale_id": sale_id,
-            "listing_id": listing_id,
-            "buyer": buyer,
-            "seller": listing["seller"],
-            "item_type": listing["item_type"],
-            "price": listing["price"],
-            "platform_fee": platform_fee,
-            "platform_wallet": self.config["platform_wallet"],
-            "seller_proceeds": seller_proceeds,
-            "completed_at": now,
-        }
+        sale = recorded_unsettled_response(
+            "marketplace", "buy_item", {
+                "sale_id": sale_id,
+                "listing_id": listing_id,
+                "buyer": buyer,
+                "seller": listing["seller"],
+                "item_type": listing["item_type"],
+                "price": listing["price"],
+                "platform_fee": platform_fee,
+                "platform_wallet": self.config["platform_wallet"],
+                "seller_proceeds": seller_proceeds,
+                "recorded_at": now,
+            },
+            value_moved=False,
+            disclosure=(
+                "The sale is recorded on The Matrix and did NOT settle: no "
+                "payment was taken from the buyer, nothing was paid to the "
+                "seller and no platform fee was collected. The listing is "
+                "marked sold so it is not sold twice."
+            ),
+        )
 
         listing["status"] = "sold"
         listing["buyer"] = buyer
@@ -153,7 +172,7 @@ class MarketplaceService:
 
         self._sales.append(sale)
         logger.info(
-            "Sale %s completed: listing=%s, buyer=%s, price=%.2f, fee=%.2f",
+            "Sale %s recorded (unsettled): listing=%s, buyer=%s, price=%.2f, fee=%.2f",
             sale_id, listing_id, buyer, listing["price"], platform_fee,
         )
         return sale

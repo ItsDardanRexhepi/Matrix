@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from runtime.protocols.outcome_truth import FAILURE, SUCCESS, combine, report_of
+from runtime.social.manager import ROUTED_PLATFORMS
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,19 @@ class PostScheduler:
         -------
         ScheduledPost
             The created scheduled post.
+
+        Raises
+        ------
+        ValueError
+            When no client routes ``platform``. Such a post could only ever be
+            sent nowhere, so it is refused while the caller is still here to be
+            told, not discovered at publish time.
         """
+        if platform not in ROUTED_PLATFORMS:
+            raise ValueError(
+                f"cannot schedule a post for platform {platform!r}: no social "
+                f"client routes it (routed: {', '.join(sorted(ROUTED_PLATFORMS))})"
+            )
         post = ScheduledPost(
             post_id=f"post_{uuid.uuid4().hex[:12]}",
             platform=platform,
@@ -234,7 +247,17 @@ class PostScheduler:
                 name: report_of(report)
                 for name, report in (result or {}).items()
             }
-            verdict = combine(per_platform.values())
+            # NO PARTS IS NOT A DELIVERY. `combine` answers SUCCESS for an empty
+            # fan-out — its own docstring says a caller asking "did anything
+            # happen at all" must count the parts — and a post to a platform
+            # nobody routes fanned out to nothing. That was recorded
+            # `published`, with a timestamp, for a post sent nowhere.
+            verdict = combine(per_platform.values()) if per_platform else FAILURE
+            if not per_platform:
+                post.result = {
+                    "error": f"no platform took this post: {post.platform!r} is not routed",
+                    "manager_result": result or {},
+                }
             if verdict is SUCCESS:
                 post.status = "published"
                 post.published_at = time.time()

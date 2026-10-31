@@ -14,6 +14,13 @@ from runtime.social.discord import DiscordClient
 
 logger = logging.getLogger(__name__)
 
+#: The platform names `SocialManager.post` routes. Anything else reaches no
+#: client at all, so it is refused by name rather than answered with an empty
+#: result — an empty result is what let a post to "linkedin" be recorded as
+#: published (combine() of zero parts is SUCCESS: nothing went wrong, because
+#: nothing was tried).
+ROUTED_PLATFORMS: frozenset[str] = frozenset({"twitter", "discord", "all"})
+
 
 class SocialManager:
     """Unified social media management for The Matrix agents.
@@ -71,10 +78,24 @@ class SocialManager:
         Returns
         -------
         dict
-            Results from each platform.
+            Results from each platform. A platform no client routes gets one
+            entry of its own, an explicit refusal, so the answer is never an
+            empty dict that reads as "nothing went wrong".
         """
         metadata = metadata or {}
         results: dict[str, Any] = {}
+
+        if platform not in ROUTED_PLATFORMS:
+            logger.warning("social post refused: no client routes platform %r", platform)
+            return {
+                str(platform): {
+                    "status": "unsupported",
+                    "error": (
+                        f"no social client routes platform {platform!r}; "
+                        f"routed: {', '.join(sorted(ROUTED_PLATFORMS))}"
+                    ),
+                },
+            }
 
         if platform in ("twitter", "all"):
             results["twitter"] = await self.twitter.post_tweet(

@@ -166,9 +166,12 @@ _MAX_EVENT_VALUE_USD = 1_000_000_000.0
 def sanitize_value_usd(raw: Any) -> Optional[float]:
     """Coerce a reported event value into something a public feed can hold.
 
-    19-D. `value_usd` arrives from `params[...]` — the request body — through
-    `ServiceDispatcher`'s feed-ingest block, unvalidated and unbounded. Two
-    measured consequences, both from an ordinary well-formed request:
+    19-D. `value_usd` arrived from `params[...]` — the request body — through
+    `ServiceDispatcher`'s feed-ingest block, unvalidated and unbounded. That
+    block now reads the service's RESULT (`_feed_value_of`), but a result can
+    echo a figure the caller wrote, so the value is still unbounded input by
+    the time it gets here. Two measured consequences, both from an ordinary
+    well-formed request:
 
       * `"Infinity"` is a PLAIN JSON STRING that `float()` accepts. Stored as
         `inf`, it makes the ENTIRE `/social/feed` response invalid JSON —

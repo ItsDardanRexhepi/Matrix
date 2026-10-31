@@ -164,18 +164,103 @@ def test_no_ownership_store_exists_yet():
     )
 
 
-async def test_the_seven_still_refuse_and_are_unchanged():
-    """SCOPE. NEW-92/93 changed a valuation response and added a comment block.
-    None of the seven gated fabrications was touched."""
+def _armed():
+    """An NFTService with the key set and a chain that is "available" but
+    answers no read, on a web3 double of its OWN. `NFTService` holds the
+    process-wide shared Web3Manager; arming that instance in place leaked an
+    "available" chain whose every value is a real address into every later
+    test in the run (test_p4_ripple, test_nft_refusal_not_indexed)."""
+    import types
+
+    def _no_chain(*_a, **_k):
+        raise RuntimeError("no chain in this test")
+
     svc = NFTService({})
-    svc._web3.available = False
-    for coro in (
+    svc._web3 = types.SimpleNamespace(
+        available=True, is_placeholder=lambda _value: False, load_contract=_no_chain)
+    svc._nft_contract = "0x" + "c0" * 20
+    return svc
+
+
+def _the_seven(svc):
+    return (
         svc.fractionalize("0xC", 1, 10, 1.0),
         svc.rent("0xC", 1, "0xR", 7, 1.0),
         svc.batch_mint("0xC", "0xA", 2, {}),
         svc.royalty_claim("0xC", 1, "0xA"),
         svc.bridge_nft("0xC", 1, "base", "0xA"),
-        svc.mint_soulbound("0xI", "0xR", {}),
+        svc.mint_soulbound("0xR", {}, "0xI"),
         svc.dynamic_update("0xC", 1, {}),
-    ):
+    )
+
+
+async def test_the_seven_refuse_while_the_key_is_unset():
+    """SCOPE. With `nft.contract_address` unset every one of the seven refuses
+    with not_deployed — the gate the NEW-93 header describes."""
+    svc = NFTService({})
+    svc._web3.available = False
+    for coro in _the_seven(svc):
         assert (await coro)["status"] == "not_deployed"
+
+
+async def test_the_seven_say_nothing_settled_once_armed():
+    """What arming the key does TODAY. This test's predecessor said "None of
+    the seven gated fabrications was touched" and asserted only the gated
+    branch — while the armed branch of all seven had been changed from
+    "fractionalized" / "rented" / "minted" / "claimed" / "bridged" / "updated"
+    to `recorded_unsettled`. A docstring about the branch it never ran.
+
+    Armed here with a contract address and an available chain whose owner
+    read fails (so fractionalize's owner check reads nothing and does not
+    refuse). Every one must answer `recorded_unsettled` with `settled: False`
+    — the header's table, driven."""
+    svc = _armed()
+    for coro in _the_seven(svc):
+        record = await coro
+        assert record["status"] == "recorded_unsettled", record
+        assert record["settled"] is False, record
+        assert record.get("value_moved") is not True, record
+        assert record["disclosure"], record
+
+
+async def test_the_header_table_says_what_each_method_returns():
+    """The NEW-93 header's table is a claim about seven methods, and it went
+    stale: it kept mapping them to "fractionalized", "rented", "minted" … after
+    all seven had been changed to answer `recorded_unsettled`. This reads every
+    column of the table out of the module — the status, the `value_moved` it
+    names, and the store a row says the method writes — and holds each row to
+    what the armed method actually returns and writes, so the next change to a
+    return has to change its row. (Its first version read only the status word,
+    so a row's `value_moved` could have said anything.)"""
+    import re
+
+    text = SERVICE_SRC.read_text()
+    table = re.findall(
+        r"^#\s{5}(\w+)\s+->\s+(\w+),\s+value_moved\s+(True|False|None)"
+        r"(?:\s+writes\s+self\.(\w+))?\s*$",
+        text, flags=re.M)
+    rows = {name: (status, {"True": True, "False": False, "None": None}[moved], store)
+            for name, status, moved, store in table}
+    assert set(rows) == {
+        "fractionalize", "rent", "mint_soulbound", "batch_mint",
+        "royalty_claim", "bridge_nft", "dynamic_update",
+    }, rows
+    # Every line of the table was read whole: a row this pattern cannot parse
+    # (a new column, a misspelt value) fails here instead of being skipped.
+    assert len(re.findall(r"^#\s{5}\w+\s+->", text, flags=re.M)) == len(table)
+
+    svc = _armed()
+    calls = dict(zip(
+        ("fractionalize", "rent", "batch_mint", "royalty_claim", "bridge_nft",
+         "mint_soulbound", "dynamic_update"),
+        _the_seven(svc),
+    ))
+    for name, coro in calls.items():
+        status, value_moved, store = rows[name]
+        before = len(getattr(svc, store)) if store else None
+        record = await coro
+        assert record["status"] == status, (name, status, record)
+        assert "value_moved" in record and record["value_moved"] is value_moved, (
+            name, value_moved, record.get("value_moved"))
+        if store:
+            assert len(getattr(svc, store)) == before + 1, (name, store)

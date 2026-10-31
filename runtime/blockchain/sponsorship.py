@@ -857,9 +857,15 @@ def resolve_caller_identity() -> str:
 # was listed as "shared account handle; every USE of it is a call site metered on
 # its own". No use of it was. `Web3Manager.get_account()` returned the unmetered
 # signer, `Web3Manager.send_transaction` signed with it, and that method is the
-# ONLY signing path the 45 services in runtime/blockchain/services/** have — 35
-# call sites across 16 services, every one of them a platform signature the
-# D-045 cap never saw. The claim was the whole justification; nothing checked it.
+# signing path the services in runtime/blockchain/services/** send through, so
+# every signature it produced for them was one the D-045 cap never saw. (It is
+# not their only one: contract_conversion's deploy, the attestation service's
+# revoke and its time-critical write sign and broadcast on their own. The deploy
+# and the revoke are metered, as `contract_conversion.deploy` and
+# `attestation.revoke`; the time-critical write is metered when a caller asks
+# for it, and is the listed `eas.attest_time_critical` below only as the
+# platform's own record.) The claim was the whole justification; nothing
+# checked it.
 #
 # The exemption is gone. `Web3Manager.signer()` is metered like every other
 # capability's `_platform_signer`, and `get_account()` hands back an address, not
@@ -944,6 +950,256 @@ def platform_address(key: str) -> PlatformAddress:
     return PlatformAddress(Account.from_key(key))
 
 
+# ── what happened to a signature after it was signed ─────────────────────
+#
+# `settle` and `abandon` existed and nothing called them. Every metered
+# signature stayed SIGNED until the 24h sweep: the ledger never recorded SPENT,
+# and a signature the node refused outright never gave its budget back. The
+# only parties that learn either fact are the send (the node answers the raw
+# transaction) and the receipt wait (a receipt arrives) — so the signer files
+# each signature it produces under its transaction hash, which exists the
+# moment the bytes are signed, and those two places close the row by that hash.
+#
+# PER PROCESS, AND THAT IS ENOUGH. The send and the receipt wait for one
+# transaction run in the process that signed it. A row this table no longer
+# holds (evicted, or signed by a process that has since restarted) simply stays
+# SIGNED — the accounting it had before this existed, which holds budget and
+# never releases it early.
+
+import threading  # noqa: E402  (kept beside the thing it exists for)
+from collections import OrderedDict  # noqa: E402
+
+# Bounded: a signature whose sender never waits for a receipt is never closed,
+# and the table must not grow with them. Evicting the oldest leaves its row
+# SIGNED, the conservative state.
+_MAX_TRACKED_SIGNATURES = 4096
+
+_signed_rows: "OrderedDict[str, tuple[SponsorshipPolicy, str]]" = OrderedDict()
+_signed_rows_lock = threading.Lock()
+
+
+def _tx_key(tx_hash: Any) -> str:
+    """One spelling per transaction hash: `0x` + lowercase hex. hexbytes 1.x's
+    `.hex()` drops the prefix and a node's answer carries it, so neither form
+    may be compared raw."""
+    if isinstance(tx_hash, (bytes, bytearray, memoryview)):
+        return "0x" + bytes(tx_hash).hex()
+    text = str(tx_hash or "").strip().lower()
+    if text and not text.startswith("0x"):
+        text = "0x" + text
+    return text
+
+
+def _file_signature(tx_hash: Any, policy: "SponsorshipPolicy", reservation_id: str) -> None:
+    key = _tx_key(tx_hash)
+    if not key or not reservation_id or policy is None:
+        return
+    with _signed_rows_lock:
+        _signed_rows[key] = (policy, reservation_id)
+        _signed_rows.move_to_end(key)
+        while len(_signed_rows) > _MAX_TRACKED_SIGNATURES:
+            _signed_rows.popitem(last=False)
+
+
+def _take_signature(tx_hash: Any) -> Optional[tuple["SponsorshipPolicy", str]]:
+    with _signed_rows_lock:
+        return _signed_rows.pop(_tx_key(tx_hash), None)
+
+
+def settle_signature(tx_hash: Any) -> bool:
+    """A receipt answered for *tx_hash*: the transaction was MINED, and gas was
+    paid whether it succeeded or reverted. Marks its ledger row SPENT. False
+    when this process holds no row for it (unmetered, uncapped, or unknown)."""
+    entry = _take_signature(tx_hash)
+    if entry is None:
+        return False
+    policy, reservation_id = entry
+    policy.settle(reservation_id)
+    return True
+
+
+def abandon_signature(tx_hash: Any, reservation_id: Optional[str]) -> bool:
+    """The node REFUSED *tx_hash*'s raw transaction: it will not be mined, no
+    gas is paid, and the budget goes back. Only for a refusal the node named
+    (`node_refused`) about a hash it then said it does not hold
+    (`node_holds_no_copy`) — a transport fault, a timeout or any answer off
+    that list says nothing about whether the bytes arrived, and the row must
+    then stay SIGNED.
+
+    ONLY THE ROW THE REFUSED SEND OPENED. *reservation_id* names it, and it is
+    given back only while it is still the row filed under the hash. Signing is
+    deterministic, so another send that signs the same bytes (the same key,
+    nonce and fields, which a client sending a refused request again can
+    produce) files its own row under the same hash, and the node may hold that
+    copy by the time this one is given back. Then nothing is released, and both rows hold
+    their budget: the side that never over-grants. False when nothing was
+    released."""
+    if not reservation_id:
+        return False
+    key = _tx_key(tx_hash)
+    with _signed_rows_lock:
+        entry = _signed_rows.get(key)
+        if entry is None or entry[1] != reservation_id:
+            return False
+        del _signed_rows[key]
+    policy, filed = entry
+    policy.abandon(filed)
+    return True
+
+
+# Node answers that fit THIS transaction being in a mempool or already mined.
+# Abandoning on one hands back budget for gas the platform paid, or may yet pay:
+#
+#   * "already known" / AlreadyKnown / known transaction / already imported —
+#     the node holds these very bytes;
+#   * "nonce too low" / NonceTooLow / OldNonce / "nonce is too low" — the nonce
+#     is used on chain, which is exactly what a node says once this transaction
+#     is mined. It used to count as a refusal, and a first delivery whose reply
+#     was lost, answered again after the block, gave its budget back.
+#
+# Compared with spaces, underscores and case taken out, because clients spell
+# them differently ("already known", "AlreadyKnown", "TRANSACTION_ALREADY_KNOWN").
+# An answer that carries one of these is never a refusal, whatever else it says.
+_STILL_PENDING_OR_MINED = (
+    "alreadyknown", "knowntransaction", "alreadyimported",
+    "noncetoolow", "nonceistoolow", "oldnonce",
+)
+
+# The refusals that give budget back: the answers geth, and the clients that
+# share its errors (op-geth on Base, reth, erigon, anvil), give when they turn
+# a transaction away before it enters the pool. Compared the same way.
+#
+# A LIST OF REFUSALS, NOT A LIST OF EXCEPTIONS TO ONE. This read every JSON-RPC
+# error as a refusal unless it named a pending or mined copy, and a JSON-RPC
+# error is often nothing of the kind: geth answers -32002 "request timed out"
+# while the handler that received the bytes keeps running; a Base replica
+# forwards the transaction to the sequencer and returns the forwarding error as
+# it is, and a forwarding timeout can come after the sequencer has the bytes; a
+# proxy answers -32603 "Internal error" or "context deadline exceeded" having
+# forwarded them. Each of those gave a signature's budget back for gas the
+# platform could still pay. An answer that is not on this list keeps the row
+# SIGNED, holding budget until its window passes — the direction that never
+# over-grants. A refusal missing from the list costs budget held, not budget
+# handed out.
+_REFUSED_AT_ADMISSION = (
+    "insufficientfunds",                   # insufficient funds for gas * price + value
+    "intrinsicgastoolow",                  # intrinsic gas too low
+    "underpriced",                         # transaction underpriced; replacement transaction underpriced
+    "lessthanblockbasefee",                # max fee per gas less than block base fee
+    "invalidsender",                       # invalid sender
+    "exceedsblockgaslimit",                # exceeds block gas limit
+    "exceedstheconfiguredcap",             # tx fee (… ether) exceeds the configured cap (… ether)
+    "txpoolisfull",                        # txpool is full
+    "onlyreplayprotected",                 # only replay-protected (EIP-155) transactions allowed over RPC
+    "invalidchainid",                      # invalid chain id for signer
+    "oversizeddata",                       # oversized data
+    "transactiontypenotsupported",         # transaction type not supported
+    "maxpriorityfeepergashigherthanmaxfeepergas",  # tip above the fee cap
+)
+
+_METHOD_NOT_FOUND = -32601
+
+
+def _web3_rpc_error_type() -> Optional[type]:
+    """web3's `Web3RPCError`, or None where the installed web3 has no such
+    class, as an older web3 may not."""
+    try:
+        from web3.exceptions import Web3RPCError
+    except Exception:  # noqa: BLE001
+        return None
+    return Web3RPCError
+
+
+def _web3_timeout_type() -> Optional[type]:
+    """web3's `RequestTimedOut`, or None where the installed web3 has no such
+    class."""
+    try:
+        from web3.exceptions import RequestTimedOut
+    except Exception:  # noqa: BLE001
+        return None
+    return RequestTimedOut
+
+
+def _rpc_error(exc: BaseException) -> Optional[tuple[Optional[int], str]]:
+    """The (code, message) of a JSON-RPC error answer, or None when *exc* is
+    not one. web3 7 raises `Web3RPCError` and keeps the answer on
+    `rpc_response`; web3 6 raised `ValueError` carrying the error dict. The
+    message is read from the answer's own `message`, not from its `data`."""
+    rpc_error_type = _web3_rpc_error_type()
+    if rpc_error_type is not None and isinstance(exc, rpc_error_type):
+        response = getattr(exc, "rpc_response", None)
+        error = response.get("error") if isinstance(response, dict) else None
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            code = error.get("code")
+            return (code if isinstance(code, int) else None), error["message"]
+        return None, str(getattr(exc, "message", None) or exc)
+    if isinstance(exc, ValueError) and exc.args and isinstance(exc.args[0], dict) \
+            and "message" in exc.args[0]:
+        code = exc.args[0].get("code")
+        return (code if isinstance(code, int) else None), str(exc.args[0].get("message", ""))
+    return None
+
+
+def node_refused(exc: BaseException) -> bool:
+    """Did the NODE refuse these bytes at admission?
+
+    True only for a JSON-RPC error answer (the node received the bytes and
+    replied) whose message is one of the refusals in `_REFUSED_AT_ADMISSION`,
+    or for a node that has no send method at all (-32601). Anything else is
+    not a refusal: a timeout, a dropped connection, a 5xx from a proxy, a
+    JSON-RPC timeout (web3's `RequestTimedOut`), a relayed internal error, and
+    any message not on the list. Neither is an answer that fits the
+    transaction already being in a mempool or on chain
+    (`_STILL_PENDING_OR_MINED`).
+
+    The answer must also be about the only delivery. The shared manager's
+    provider does not re-send a raw transaction (`broadcast_safe_http_provider`);
+    with web3's default retry, a lost reply was followed by a second POST of the
+    same bytes, and the node's answer to that one was read here.
+
+    A True here is not enough to give budget back on its own: the caller also
+    asks the node whether it holds the transaction (`node_holds_no_copy`).
+    """
+    timed_out = _web3_timeout_type()
+    if timed_out is not None and isinstance(exc, timed_out):
+        return False
+    answer = _rpc_error(exc)
+    if answer is None:
+        return False
+    code, message = answer
+    squeezed = "".join(ch for ch in message.lower() if ch.isalnum())
+    if any(k in squeezed for k in _STILL_PENDING_OR_MINED):
+        return False
+    if code == _METHOD_NOT_FOUND:
+        return True
+    return any(k in squeezed for k in _REFUSED_AT_ADMISSION)
+
+
+def node_holds_no_copy(w3: Any, tx_hash: Any) -> bool:
+    """Asked right after a refusal, does the node say it holds NO transaction
+    under *tx_hash* — neither pending in its pool nor mined?
+
+    True only for the node's own "not found" (web3 raises `TransactionNotFound`
+    for a null answer and for a "transaction not found" error). Anything else
+    is False: a transaction it returns, a lookup that times out or fails, a
+    node still indexing. A refusal the node named can still be about a copy
+    that exists — a proxy that delivered the bytes to one backend and relayed
+    another's answer, or a retry made somewhere between here and the node — and
+    a copy that exists can still be mined.
+    """
+    try:
+        from web3.exceptions import TransactionNotFound
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        found = w3.eth.get_transaction(tx_hash)
+    except TransactionNotFound:
+        return True
+    except Exception:  # noqa: BLE001 — no answer is not "not found"
+        return False
+    return found is None
+
+
 class MeteredSigner:
     """An eth_account signer that consults the sponsorship policy at the moment
     it signs — when the transaction's real gas numbers exist.
@@ -968,8 +1224,10 @@ class MeteredSigner:
 
         A caller that goes on to broadcast is the only party that ever learns
         whether the transaction landed, and it had no handle on the row — which
-        is why the row could only ever be written at signing time. It can now
-        call `policy.settle(...)` or `policy.abandon(...)` with this.
+        is why the row could only ever be written at signing time. The row is
+        also filed under the signed transaction's hash, so the send and the
+        receipt wait close it without holding this signer
+        (`abandon_signature` / `settle_signature`).
         """
         return self._last_reservation_id
 
@@ -1013,6 +1271,11 @@ class MeteredSigner:
         # budget, because it may land, and it does not claim gas has been paid.
         self._policy.commit(decision.reservation_id)
         self._last_reservation_id = decision.reservation_id
+        # Filed under the transaction's own hash, which the signed bytes already
+        # determine, so whoever next learns its fate can close the row.
+        tx_hash = getattr(signed, "hash", None)
+        if tx_hash is not None:
+            _file_signature(tx_hash, self._policy, decision.reservation_id)
         return signed
 
 

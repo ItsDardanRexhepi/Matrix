@@ -247,15 +247,28 @@ class A2AMarketplace:
             job = self.jobs[result.job_id]
             # A job whose outcome is not established is DISPUTED, not FAILED.
             # Recording "failed" for an agent that may well have done the work
-            # is a claim about the provider, and it feeds `total_jobs` and the
-            # success rate buyers pick a service on.
+            # is a claim about the provider, and the status decides what the
+            # listing's success rate — the figure buyers pick a service on —
+            # counts it as.
             job.status = _job_status_for(result)
             job.completed_at = time.time()
 
-            # Update service stats
+            # Update service stats. `total_jobs` counts every finished job,
+            # whatever its status. The success rate counts only the jobs whose
+            # outcome was established — COMPLETED against FAILED — so a
+            # DISPUTED job moves neither side, and a listing with no
+            # established job has no rate at all rather than a perfect one.
             svc = self.services.get(job.service_id)
             if svc:
                 svc.total_jobs += 1
+                if job.status == JobStatus.COMPLETED.value:
+                    svc.completed_jobs += 1
+                elif job.status == JobStatus.FAILED.value:
+                    svc.failed_jobs += 1
+                decided = svc.completed_jobs + svc.failed_jobs
+                svc.success_rate = (
+                    round(svc.completed_jobs / decided, 4) if decided else None
+                )
 
         if self.db:
             await self.db.execute(

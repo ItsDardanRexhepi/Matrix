@@ -217,39 +217,69 @@ class GamingService:
     async def enter_tournament(
         self, game_id: str, player: str, entry_fee: float, tournament_name: str = "",
     ) -> dict:
-        """Enter a player into a tournament."""
+        """Record a player's tournament entry. NO ENTRY FEE IS TAKEN HERE.
+
+        It stamped `status: "entered"` over an `entry_fee` and collected
+        nothing — no payment, no escrow, no transfer — so the dispatcher
+        attested a paid entry and the record read as one. The entry is a record
+        on this platform, and it says so.
+        """
         entry_id = f"tourn_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
-        record: dict[str, Any] = {
-            "id": entry_id,
-            "status": "entered",
-            "game_id": game_id,
-            "player": player,
-            "entry_fee": entry_fee,
-            "tournament_name": tournament_name,
-            "entered_at": now,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "gaming", "enter_tournament", {
+                "id": entry_id,
+                "game_id": game_id,
+                "player": player,
+                "entry_fee": entry_fee,
+                "tournament_name": tournament_name,
+                "recorded_at": now,
+            },
+            value_moved=False,
+            disclosure=(
+                "The entry is recorded on The Matrix and the entry fee was NOT "
+                "collected: no payment was taken, nothing was escrowed and no "
+                "transaction exists."
+            ),
+        )
         self._assets[entry_id] = record
-        logger.info("Tournament entry: id=%s player=%s", entry_id, player)
+        logger.info("Tournament entry recorded (fee not collected): id=%s player=%s",
+                    entry_id, player)
         return record
 
     async def trade_item(
         self, asset_id: str, seller: str, buyer: str, price: float,
     ) -> dict:
-        """Trade a game item between players."""
+        """Record a trade of a game item. NOTHING CHANGES HANDS HERE.
+
+        It returned `status: "completed"` with the price, having written one
+        dict keyed by the TRADE: the item's owner never changed, no payment was
+        taken, and the dispatcher EAS-attested the trade as settled and
+        published it to the public feed at its price. This is the sibling of
+        `attest_achievement` below, in the same service and the same class, and
+        it gets the same record: the trade is written down and the record says
+        nothing moved.
+        """
         trade_id = f"trade_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
-        record: dict[str, Any] = {
-            "id": trade_id,
-            "status": "completed",
-            "asset_id": asset_id,
-            "seller": seller,
-            "buyer": buyer,
-            "price": price,
-            "traded_at": now,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "gaming", "trade_item", {
+                "id": trade_id,
+                "asset_id": asset_id,
+                "seller": seller,
+                "buyer": buyer,
+                "price": price,
+                "recorded_at": now,
+            },
+            value_moved=False,
+            disclosure=(
+                "The trade is recorded on The Matrix and did NOT settle: the "
+                "item's owner was not changed and no payment moved between "
+                "buyer and seller."
+            ),
+        )
         self._assets[trade_id] = record
-        logger.info("Item traded: id=%s", trade_id)
+        logger.info("Item trade recorded (unsettled): id=%s", trade_id)
         return record
 
     async def attest_achievement(
@@ -316,20 +346,32 @@ class GamingService:
     async def place_prediction_bet(
         self, market_id: str, bettor: str, option: str, amount: float,
     ) -> dict:
-        """Place a bet on a prediction market."""
+        """Record a bet on a prediction market. THE STAKE IS NOT TAKEN HERE.
+
+        It stamped `status: "placed"` over an `amount` and moved nothing, so
+        the dispatcher attested a staked bet and the public feed published the
+        amount as value moved. The bet is a record, and it says so.
+        """
         bet_id = f"bet_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
-        record: dict[str, Any] = {
-            "id": bet_id,
-            "status": "placed",
-            "market_id": market_id,
-            "bettor": bettor,
-            "option": option,
-            "amount": amount,
-            "placed_at": now,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "gaming", "place_prediction_bet", {
+                "id": bet_id,
+                "market_id": market_id,
+                "bettor": bettor,
+                "option": option,
+                "amount": amount,
+                "recorded_at": now,
+            },
+            value_moved=False,
+            disclosure=(
+                "The bet is recorded on The Matrix and the stake was NOT taken: "
+                "nothing was escrowed and no transaction exists, so there is "
+                "nothing to pay out from."
+            ),
+        )
         self._assets[bet_id] = record
-        logger.info("Prediction bet placed: id=%s", bet_id)
+        logger.info("Prediction bet recorded (stake not taken): id=%s", bet_id)
         return record
 
     async def resolve_market(
