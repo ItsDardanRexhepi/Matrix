@@ -859,13 +859,16 @@ def resolve_caller_identity() -> str:
 # signer, `Web3Manager.send_transaction` signed with it, and that method is the
 # signing path the services in runtime/blockchain/services/** send through, so
 # every signature it produced for them was one the D-045 cap never saw. (It is
-# not their only one: contract_conversion's deploy, the attestation service's
-# revoke and its time-critical write sign and broadcast on their own. The deploy
-# and the revoke are metered, as `contract_conversion.deploy` and
-# `attestation.revoke`; the time-critical write is metered when a caller asks
-# for it, and is the listed `eas.attest_time_critical` below only as the
-# platform's own record.) The claim was the whole justification; nothing
-# checked it.
+# not their only one. The conversion pipeline's deploy and the attestation
+# service's revoke, time-critical write and queued writes sign and broadcast on
+# their own, the queued writes through the EAS client, as NeoSafe's revenue
+# record does. The deploy and the revoke are metered, as
+# `contract_conversion.deploy` and `attestation.revoke`; the time-critical write
+# and the queued writes are metered when a caller asks for them, as
+# `attestation.attest` or `attestation.batch_attest`, and are the listed
+# `eas.attest_time_critical` and `eas.attest` below only as the platform's own
+# record, as the revenue record is.) The claim was the whole justification;
+# nothing checked it.
 #
 # The exemption is gone. `Web3Manager.signer()` is metered like every other
 # capability's `_platform_signer`, and `get_account()` hands back an address, not
@@ -954,27 +957,64 @@ def platform_address(key: str) -> PlatformAddress:
 #
 # `settle` and `abandon` existed and nothing called them. Every metered
 # signature stayed SIGNED until the 24h sweep: the ledger never recorded SPENT,
-# and a signature the node refused outright never gave its budget back. The
-# only parties that learn either fact are the send (the node answers the raw
-# transaction) and the receipt wait (a receipt arrives) — so the signer files
-# each signature it produces under its transaction hash, which exists the
-# moment the bytes are signed, and those two places close the row by that hash.
+# and a signature that never reached the chain never gave its budget back. The
+# one party that learns a signature's fate is the receipt wait, so the signer
+# files each signature it makes under its transaction hash, which exists the
+# moment the bytes are signed, and in its NONCE SLOT: the chain, the account and
+# the nonce it was signed with. A receipt then closes the rows:
 #
-# PER PROCESS, AND THAT IS ENOUGH. The send and the receipt wait for one
-# transaction run in the process that signed it. A row this table no longer
-# holds (evicted, or signed by a process that has since restarted) simply stays
-# SIGNED — the accounting it had before this existed, which holds budget and
-# never releases it early.
+#   * its own: the transaction was MINED, success or revert, and its row is
+#     SPENT;
+#   * another's in the same slot: only one transaction in a slot can ever be
+#     mined, so no other signature in it ever will be — one the node refused,
+#     one whose send nobody heard back from, one never broadcast, and an
+#     earlier signature of the very same bytes, whose one payment the mined
+#     copy's row already holds — and each gives its budget back.
+#
+# WHAT THE NODE ANSWERS THE SEND CLOSES NOTHING. This gave a signature's budget
+# back for an answer on a list of refusals, once the node, asked by hash, said
+# it held no copy. Neither answer is about the network: a proxy that retries a
+# POST can deliver the bytes to one backend and relay another's refusal, and
+# the lookup can be answered by a backend that cannot see that pool. Reproduced
+# over real HTTP: the budget came back, the transaction was mined, gas was paid,
+# and the identity's next send was granted against a cap the two together
+# exceeded. The lookup also held a thread of the process's shared pool for up
+# to most of a minute against a node that did not answer, and enough refused
+# sends at once left an unrelated receipt wait queued behind them. A refused
+# signature now holds its budget like one whose fate nobody learned, until a
+# receipt in its slot or its window says otherwise. On the shared manager's
+# send the next transaction takes the nonce the refused one never took, so the
+# budget comes back once that one is mined and its receipt is waited for. A
+# send whose receipt nobody waits for (some services broadcast and return)
+# settles nothing and closes no slot.
+#
+# PER PROCESS, AND THAT IS ENOUGH. A transaction and its receipt wait run in
+# the process that signed it. A row these tables no longer hold (evicted, or
+# signed by a process that has since restarted) simply stays SIGNED — the
+# accounting it had before this existed, which holds budget and never releases
+# it early. A transaction signed with no chain id is in no slot: it can be
+# mined on any chain the account is on, so no receipt on one shows it never
+# will be.
 
 import threading  # noqa: E402  (kept beside the thing it exists for)
 from collections import OrderedDict  # noqa: E402
 
 # Bounded: a signature whose sender never waits for a receipt is never closed,
-# and the table must not grow with them. Evicting the oldest leaves its row
+# and the tables must not grow with them. Evicting the oldest leaves its row
 # SIGNED, the conservative state.
 _MAX_TRACKED_SIGNATURES = 4096
 
-_signed_rows: "OrderedDict[str, tuple[SponsorshipPolicy, str]]" = OrderedDict()
+#: (chain id, account, nonce). At most one transaction in a slot is ever mined.
+_Slot = tuple[int, str, int]
+
+#: hash -> the rows filed under it, oldest first: signing is deterministic, so
+#: the same bytes signed twice are filed twice under one hash.
+_rows_by_hash: "OrderedDict[str, list[tuple[SponsorshipPolicy, str]]]" = OrderedDict()
+#: hash -> its slot, for every signature the platform's signer makes, metered or
+#: not: one of the platform's own records mined in a slot settles it as surely.
+_slot_of: "OrderedDict[str, _Slot]" = OrderedDict()
+#: slot -> the hashes signed in it.
+_hashes_in_slot: "OrderedDict[_Slot, set[str]]" = OrderedDict()
 _signed_rows_lock = threading.Lock()
 
 
@@ -990,214 +1030,96 @@ def _tx_key(tx_hash: Any) -> str:
     return text
 
 
+def _whole_number(value: Any) -> Optional[int]:
+    """A transaction's chain id or nonce as eth_account takes it: an int, or a
+    hex or decimal string. None for anything else."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return None
+    return None
+
+
+def _slot(tx: Any, sender: Any) -> Optional[_Slot]:
+    """The slot *sender* signs *tx* in, or None when it is in none."""
+    try:
+        chain, nonce = _whole_number(tx.get("chainId")), _whole_number(tx.get("nonce"))
+    except AttributeError:
+        return None
+    account = str(sender or "").strip().lower()
+    if chain is None or nonce is None or not account:
+        return None
+    return (chain, account, nonce)
+
+
+def _bound(table: "OrderedDict[Any, Any]") -> None:
+    while len(table) > _MAX_TRACKED_SIGNATURES:
+        table.popitem(last=False)
+
+
+def _note_signature(tx_hash: Any, slot: Optional[_Slot]) -> None:
+    key = _tx_key(tx_hash)
+    if not key or slot is None:
+        return
+    with _signed_rows_lock:
+        _slot_of[key] = slot
+        _slot_of.move_to_end(key)
+        _hashes_in_slot.setdefault(slot, set()).add(key)
+        _hashes_in_slot.move_to_end(slot)
+        # A slot holds only signatures still tracked by hash: one slot can
+        # gather a signature per send for as long as a node refuses them all.
+        while len(_slot_of) > _MAX_TRACKED_SIGNATURES:
+            evicted, its_slot = _slot_of.popitem(last=False)
+            hashes = _hashes_in_slot.get(its_slot)
+            if hashes is not None:
+                hashes.discard(evicted)
+                if not hashes:
+                    del _hashes_in_slot[its_slot]
+        _bound(_hashes_in_slot)
+
+
 def _file_signature(tx_hash: Any, policy: "SponsorshipPolicy", reservation_id: str) -> None:
     key = _tx_key(tx_hash)
     if not key or not reservation_id or policy is None:
         return
     with _signed_rows_lock:
-        _signed_rows[key] = (policy, reservation_id)
-        _signed_rows.move_to_end(key)
-        while len(_signed_rows) > _MAX_TRACKED_SIGNATURES:
-            _signed_rows.popitem(last=False)
-
-
-def _take_signature(tx_hash: Any) -> Optional[tuple["SponsorshipPolicy", str]]:
-    with _signed_rows_lock:
-        return _signed_rows.pop(_tx_key(tx_hash), None)
+        _rows_by_hash.setdefault(key, []).append((policy, reservation_id))
+        _rows_by_hash.move_to_end(key)
+        _bound(_rows_by_hash)
 
 
 def settle_signature(tx_hash: Any) -> bool:
     """A receipt answered for *tx_hash*: the transaction was MINED, and gas was
-    paid whether it succeeded or reverted. Marks its ledger row SPENT. False
-    when this process holds no row for it (unmetered, uncapped, or unknown)."""
-    entry = _take_signature(tx_hash)
-    if entry is None:
-        return False
-    policy, reservation_id = entry
-    policy.settle(reservation_id)
-    return True
-
-
-def abandon_signature(tx_hash: Any, reservation_id: Optional[str]) -> bool:
-    """The node REFUSED *tx_hash*'s raw transaction: it will not be mined, no
-    gas is paid, and the budget goes back. Only for a refusal the node named
-    (`node_refused`) about a hash it then said it does not hold
-    (`node_holds_no_copy`) — a transport fault, a timeout or any answer off
-    that list says nothing about whether the bytes arrived, and the row must
-    then stay SIGNED.
-
-    ONLY THE ROW THE REFUSED SEND OPENED. *reservation_id* names it, and it is
-    given back only while it is still the row filed under the hash. Signing is
-    deterministic, so another send that signs the same bytes (the same key,
-    nonce and fields, which a client sending a refused request again can
-    produce) files its own row under the same hash, and the node may hold that
-    copy by the time this one is given back. Then nothing is released, and both rows hold
-    their budget: the side that never over-grants. False when nothing was
-    released."""
-    if not reservation_id:
-        return False
+    paid whether it succeeded or reverted. Its ledger row is marked SPENT, and
+    every other signature in its slot gives its budget back, because none of
+    them can be mined now. False when this process holds no row filed under
+    *tx_hash* itself (unmetered, uncapped, or unknown); the rest of its slot is
+    closed all the same."""
     key = _tx_key(tx_hash)
     with _signed_rows_lock:
-        entry = _signed_rows.get(key)
-        if entry is None or entry[1] != reservation_id:
-            return False
-        del _signed_rows[key]
-    policy, filed = entry
-    policy.abandon(filed)
-    return True
-
-
-# Node answers that fit THIS transaction being in a mempool or already mined.
-# Abandoning on one hands back budget for gas the platform paid, or may yet pay:
-#
-#   * "already known" / AlreadyKnown / known transaction / already imported —
-#     the node holds these very bytes;
-#   * "nonce too low" / NonceTooLow / OldNonce / "nonce is too low" — the nonce
-#     is used on chain, which is exactly what a node says once this transaction
-#     is mined. It used to count as a refusal, and a first delivery whose reply
-#     was lost, answered again after the block, gave its budget back.
-#
-# Compared with spaces, underscores and case taken out, because clients spell
-# them differently ("already known", "AlreadyKnown", "TRANSACTION_ALREADY_KNOWN").
-# An answer that carries one of these is never a refusal, whatever else it says.
-_STILL_PENDING_OR_MINED = (
-    "alreadyknown", "knowntransaction", "alreadyimported",
-    "noncetoolow", "nonceistoolow", "oldnonce",
-)
-
-# The refusals that give budget back: the answers geth, and the clients that
-# share its errors (op-geth on Base, reth, erigon, anvil), give when they turn
-# a transaction away before it enters the pool. Compared the same way.
-#
-# A LIST OF REFUSALS, NOT A LIST OF EXCEPTIONS TO ONE. This read every JSON-RPC
-# error as a refusal unless it named a pending or mined copy, and a JSON-RPC
-# error is often nothing of the kind: geth answers -32002 "request timed out"
-# while the handler that received the bytes keeps running; a Base replica
-# forwards the transaction to the sequencer and returns the forwarding error as
-# it is, and a forwarding timeout can come after the sequencer has the bytes; a
-# proxy answers -32603 "Internal error" or "context deadline exceeded" having
-# forwarded them. Each of those gave a signature's budget back for gas the
-# platform could still pay. An answer that is not on this list keeps the row
-# SIGNED, holding budget until its window passes — the direction that never
-# over-grants. A refusal missing from the list costs budget held, not budget
-# handed out.
-_REFUSED_AT_ADMISSION = (
-    "insufficientfunds",                   # insufficient funds for gas * price + value
-    "intrinsicgastoolow",                  # intrinsic gas too low
-    "underpriced",                         # transaction underpriced; replacement transaction underpriced
-    "lessthanblockbasefee",                # max fee per gas less than block base fee
-    "invalidsender",                       # invalid sender
-    "exceedsblockgaslimit",                # exceeds block gas limit
-    "exceedstheconfiguredcap",             # tx fee (… ether) exceeds the configured cap (… ether)
-    "txpoolisfull",                        # txpool is full
-    "onlyreplayprotected",                 # only replay-protected (EIP-155) transactions allowed over RPC
-    "invalidchainid",                      # invalid chain id for signer
-    "oversizeddata",                       # oversized data
-    "transactiontypenotsupported",         # transaction type not supported
-    "maxpriorityfeepergashigherthanmaxfeepergas",  # tip above the fee cap
-)
-
-_METHOD_NOT_FOUND = -32601
-
-
-def _web3_rpc_error_type() -> Optional[type]:
-    """web3's `Web3RPCError`, or None where the installed web3 has no such
-    class, as an older web3 may not."""
-    try:
-        from web3.exceptions import Web3RPCError
-    except Exception:  # noqa: BLE001
-        return None
-    return Web3RPCError
-
-
-def _web3_timeout_type() -> Optional[type]:
-    """web3's `RequestTimedOut`, or None where the installed web3 has no such
-    class."""
-    try:
-        from web3.exceptions import RequestTimedOut
-    except Exception:  # noqa: BLE001
-        return None
-    return RequestTimedOut
-
-
-def _rpc_error(exc: BaseException) -> Optional[tuple[Optional[int], str]]:
-    """The (code, message) of a JSON-RPC error answer, or None when *exc* is
-    not one. web3 7 raises `Web3RPCError` and keeps the answer on
-    `rpc_response`; web3 6 raised `ValueError` carrying the error dict. The
-    message is read from the answer's own `message`, not from its `data`."""
-    rpc_error_type = _web3_rpc_error_type()
-    if rpc_error_type is not None and isinstance(exc, rpc_error_type):
-        response = getattr(exc, "rpc_response", None)
-        error = response.get("error") if isinstance(response, dict) else None
-        if isinstance(error, dict) and isinstance(error.get("message"), str):
-            code = error.get("code")
-            return (code if isinstance(code, int) else None), error["message"]
-        return None, str(getattr(exc, "message", None) or exc)
-    if isinstance(exc, ValueError) and exc.args and isinstance(exc.args[0], dict) \
-            and "message" in exc.args[0]:
-        code = exc.args[0].get("code")
-        return (code if isinstance(code, int) else None), str(exc.args[0].get("message", ""))
-    return None
-
-
-def node_refused(exc: BaseException) -> bool:
-    """Did the NODE refuse these bytes at admission?
-
-    True only for a JSON-RPC error answer (the node received the bytes and
-    replied) whose message is one of the refusals in `_REFUSED_AT_ADMISSION`,
-    or for a node that has no send method at all (-32601). Anything else is
-    not a refusal: a timeout, a dropped connection, a 5xx from a proxy, a
-    JSON-RPC timeout (web3's `RequestTimedOut`), a relayed internal error, and
-    any message not on the list. Neither is an answer that fits the
-    transaction already being in a mempool or on chain
-    (`_STILL_PENDING_OR_MINED`).
-
-    The answer must also be about the only delivery. The shared manager's
-    provider does not re-send a raw transaction (`broadcast_safe_http_provider`);
-    with web3's default retry, a lost reply was followed by a second POST of the
-    same bytes, and the node's answer to that one was read here.
-
-    A True here is not enough to give budget back on its own: the caller also
-    asks the node whether it holds the transaction (`node_holds_no_copy`).
-    """
-    timed_out = _web3_timeout_type()
-    if timed_out is not None and isinstance(exc, timed_out):
-        return False
-    answer = _rpc_error(exc)
-    if answer is None:
-        return False
-    code, message = answer
-    squeezed = "".join(ch for ch in message.lower() if ch.isalnum())
-    if any(k in squeezed for k in _STILL_PENDING_OR_MINED):
-        return False
-    if code == _METHOD_NOT_FOUND:
-        return True
-    return any(k in squeezed for k in _REFUSED_AT_ADMISSION)
-
-
-def node_holds_no_copy(w3: Any, tx_hash: Any) -> bool:
-    """Asked right after a refusal, does the node say it holds NO transaction
-    under *tx_hash* — neither pending in its pool nor mined?
-
-    True only for the node's own "not found" (web3 raises `TransactionNotFound`
-    for a null answer and for a "transaction not found" error). Anything else
-    is False: a transaction it returns, a lookup that times out or fails, a
-    node still indexing. A refusal the node named can still be about a copy
-    that exists — a proxy that delivered the bytes to one backend and relayed
-    another's answer, or a retry made somewhere between here and the node — and
-    a copy that exists can still be mined.
-    """
-    try:
-        from web3.exceptions import TransactionNotFound
-    except Exception:  # noqa: BLE001
-        return False
-    try:
-        found = w3.eth.get_transaction(tx_hash)
-    except TransactionNotFound:
-        return True
-    except Exception:  # noqa: BLE001 — no answer is not "not found"
-        return False
-    return found is None
+        own = _rows_by_hash.pop(key, [])
+        slot = _slot_of.pop(key, None)
+        others: list[tuple["SponsorshipPolicy", str]] = []
+        if slot is not None:
+            for other in _hashes_in_slot.pop(slot, set()):
+                if other != key:
+                    others.extend(_rows_by_hash.pop(other, []))
+                    _slot_of.pop(other, None)
+    if own:
+        policy, reservation_id = own[-1]
+        policy.settle(reservation_id)
+    # An earlier signature of these very bytes is the same transaction, and the
+    # row settled above holds its one payment. With no slot the same bytes can
+    # be mined on another chain too, so an earlier one keeps holding.
+    given_back = (own[:-1] if slot is not None else []) + others
+    for policy, reservation_id in given_back:
+        policy.abandon(reservation_id)
+    return bool(own)
 
 
 class MeteredSigner:
@@ -1225,9 +1147,9 @@ class MeteredSigner:
         A caller that goes on to broadcast is the only party that ever learns
         whether the transaction landed, and it had no handle on the row — which
         is why the row could only ever be written at signing time. The row is
-        also filed under the signed transaction's hash, so the send and the
-        receipt wait close it without holding this signer
-        (`abandon_signature` / `settle_signature`).
+        also filed under the signed transaction's hash and in its nonce slot,
+        so the receipt wait closes it without holding this signer
+        (`settle_signature`).
         """
         return self._last_reservation_id
 
@@ -1251,10 +1173,11 @@ class MeteredSigner:
         # every capability signature signed whatever the list said. With no
         # cap and no allowlist `authorize_and_reserve` allows without touching
         # the ledger, so an operator who configured nothing sees no change.
+        slot = _slot(tx, getattr(self._account, "address", None))
         if not self._metered or self._policy is None:
-            return self._account.sign_transaction(tx)
+            return _in_its_slot(self._account.sign_transaction(tx), slot)
         if not self._policy.enforces_a_cap and self._policy.allowed_actions is None:
-            return self._account.sign_transaction(tx)
+            return _in_its_slot(self._account.sign_transaction(tx), slot)
 
         decision = self._policy.authorize_and_reserve(
             self._action, identity=self._identity, est_usd=self._estimate_usd(tx))
@@ -1272,11 +1195,21 @@ class MeteredSigner:
         self._policy.commit(decision.reservation_id)
         self._last_reservation_id = decision.reservation_id
         # Filed under the transaction's own hash, which the signed bytes already
-        # determine, so whoever next learns its fate can close the row.
+        # determine, and in its slot, so a receipt for it or for another
+        # transaction in the slot closes the row.
         tx_hash = getattr(signed, "hash", None)
         if tx_hash is not None:
             _file_signature(tx_hash, self._policy, decision.reservation_id)
-        return signed
+        return _in_its_slot(signed, slot)
+
+
+def _in_its_slot(signed: Any, slot: Optional[_Slot]) -> Any:
+    """Put a signature the platform made in its slot, metered or not, and
+    return it."""
+    tx_hash = getattr(signed, "hash", None)
+    if tx_hash is not None:
+        _note_signature(tx_hash, slot)
+    return signed
 
 
 async def platform_signer(config: dict, action: str, *, key: Optional[str] = None,
