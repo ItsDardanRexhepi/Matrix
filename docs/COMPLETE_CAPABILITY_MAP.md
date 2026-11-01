@@ -84,7 +84,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|
 | Stake | Stake tokens for yield | POST /api/v1/staking/stake | native |
 | Unstake | Unstake tokens and claim rewards | POST /api/v1/staking/unstake | native |
-| Claim Staking Rewards | Claim accrued staking rewards | via capability registry | native |
+| Claim Staking Rewards | Record a claim of accrued staking rewards and the platform's commission on them: recorded, not settled — nothing is paid to the staker or the platform | via capability registry | native |
 | Get Staking Position | View current staking position | via capability registry | native |
 | Liquid Stake (Lido) | Obtain stETH by liquid-staking ETH with Lido | via capability registry · operator key only | Lido |
 | Liquid Stake (Rocket Pool) | Obtain rETH by liquid-staking with Rocket Pool | via capability registry | Rocket Pool |
@@ -105,18 +105,18 @@ The sections below organise every capability by its high-level category. Older c
 | Transfer NFT | Transfer an NFT to another owner | via capability registry | ERC-721, ERC-1155 |
 | List NFT for Sale | List an NFT on the marketplace | via capability registry | ERC-721 |
 | Buy NFT | Purchase a listed NFT | via capability registry | ERC-721 |
-| Batch Mint | Mint multiple NFTs in a single transaction | POST /api/v1/nft/batch-mint | ERC-721, ERC-1155 |
-| Fractionalize NFT | Split an NFT into fungible fractions for co-ownership | POST /api/v1/nft/fractionalize | Fractional, Tessera |
-| Rent NFT | Rent an NFT for a specified duration | POST /api/v1/nft/rent | ERC-4907 |
-| Royalty Claim | Claim accumulated royalties from secondary sales | POST /api/v1/nft/royalty/claim | ERC-2981 |
+| Batch Mint | Record a batch of NFT mints: recorded, not settled — no mint transaction is sent and no token exists | POST /api/v1/nft/batch-mint | ERC-721, ERC-1155 |
+| Fractionalize NFT | Record an NFT's split into fractions, once its on-chain owner is checked: recorded, not settled — no fraction contract is deployed and the NFT is not locked | POST /api/v1/nft/fractionalize | Fractional, Tessera |
+| Rent NFT | Record an NFT rental for a set duration: recorded, not settled — the renter gets no on-chain user role and no rent is collected | POST /api/v1/nft/rent | ERC-4907 |
+| Royalty Claim | Record a claim on royalties from secondary sales: recorded, not settled — no royalty contract is called and nothing is paid | POST /api/v1/nft/royalty/claim | ERC-2981 |
 | Configure NFT Royalty | Set or update the royalty for a collection | via capability registry | ERC-2981 |
-| Dynamic Update | Update dynamic NFT metadata | via capability registry | ERC-721 |
+| Dynamic Update | Record new metadata for a dynamic NFT: recorded, not settled — the metadata the chain holds is unchanged | via capability registry | ERC-721 |
 | Estimate NFT Value | Get an AI-derived value estimate | via capability registry | custom |
 | Get NFT Rarity | Compute rarity rank for a token | via capability registry | custom |
 | Set / Check NFT Rights | Encode and query programmable rights | via capability registry | custom |
-| Bridge NFT | Bridge an NFT to another chain | POST /api/v1/nft/bridge | LayerZero, Wormhole |
+| Bridge NFT | Record an NFT's bridge to another chain: recorded, not settled — nothing is locked or minted, and the token stays where it was | POST /api/v1/nft/bridge | LayerZero, Wormhole |
 | IP Registration | Register intellectual property on-chain | POST /api/v1/ip/register | EAS, custom |
-| Soulbound Mint | Mint a non-transferable soulbound token | via capability registry | ERC-5192 |
+| Soulbound Mint | Record a non-transferable soulbound token: recorded, not settled — no mint transaction is sent, so there is nothing on chain to read | via capability registry | ERC-5192 |
 
 ---
 
@@ -283,8 +283,8 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|
 | Tokenize Asset | Tokenize a real-world asset (property, vehicle, etc.) | POST /api/v1/rwa/tokenize | ERC-3643, custom |
 | Transfer RWA Ownership | Transfer ownership of a tokenized asset | via capability registry | ERC-3643 |
-| Fractional Buy | Purchase fractions of a tokenized RWA | via capability registry | ERC-3643, custom |
-| RWA Income Claim | Claim income streams from a tokenized RWA | via capability registry | ERC-3643 |
+| Fractional Buy | Record a purchase of fractions of a tokenized RWA: recorded, not settled — no payment is taken and no fraction changes hands | via capability registry | ERC-3643, custom |
+| RWA Income Claim | Record a claim on a tokenized RWA's income: recorded, not settled — no distribution contract is called and nothing is paid | via capability registry | ERC-3643 |
 | List Assets | Browse available tokenized real-world assets | GET /api/v1/rwa/listings | custom |
 | Register Product | Register a product on-chain for tracking | POST /api/v1/supply-chain/register | custom |
 | Log Provenance | Log a provenance event for a product | POST /api/v1/supply-chain/provenance/log | custom |
@@ -308,7 +308,7 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
 | Create Prediction Market | Create a new prediction market | via capability registry | Polymarket, custom |
-| Place Prediction Bet | Place a bet on a prediction market outcome | via capability registry | Polymarket, custom |
+| Place Prediction Bet | Record a bet on a prediction market outcome: recorded, not settled — the stake is not taken | via capability registry | Polymarket, custom |
 | Resolve Market | Resolve a market to a final outcome | via capability registry | Polymarket, custom |
 | Create Auction | Create an English, Dutch, or sealed-bid auction | via capability registry · operator key only | custom |
 | Place Bid | Submit a bid to an auction | via capability registry | custom |
@@ -320,7 +320,7 @@ The sections below organise every capability by its high-level category. Older c
 | Create Security | Create a tokenized security | POST /api/v1/securities/create | ERC-3643 |
 | List / Buy / Sell Security | Security token trading | via capability registry | ERC-3643 |
 | List Marketplace Item | List an item for sale on the marketplace | POST /api/v1/marketplace/list | custom |
-| Buy Marketplace Item | Purchase a marketplace listing | POST /api/v1/marketplace/buy | custom |
+| Buy Marketplace Item | Record a purchase of a marketplace listing, which marks it sold: recorded, not settled — no payment is taken and no fee is collected | POST /api/v1/marketplace/buy | custom |
 | Cancel Listing | Cancel an active listing | via capability registry | custom |
 | Subscribe | Subscribe to a service plan | POST /api/v1/subscriptions/subscribe | custom |
 | Create Subscription Plan / Cancel Subscription | Create a subscription plan, or cancel a subscriber's subscription | via capability registry | custom |
@@ -340,9 +340,9 @@ The sections below organise every capability by its high-level category. Older c
 | Approve Game | Approve a registered game for listing | via capability registry | custom |
 | Mint Game Asset | Mint an in-game asset NFT | via capability registry | ERC-721, ERC-1155 |
 | Transfer Game Asset | Transfer an in-game asset | via capability registry | ERC-721, ERC-1155 |
-| Tournament Enter | Enter an on-chain tournament | via capability registry | custom |
-| Game Item Trade | Trade game items in a secondary marketplace | via capability registry | custom |
-| Achievement Attest | Attest an in-game achievement on-chain | via capability registry | EAS |
+| Tournament Enter | Record a tournament entry: recorded, not settled — the entry fee is not collected | via capability registry | custom |
+| Game Item Trade | Record a game-item trade: recorded, not settled — the item's owner does not change and no payment moves | via capability registry | custom |
+| Achievement Attest | Record an in-game achievement: recorded, not settled — no attestation is written to any chain | via capability registry | EAS |
 
 ---
 
@@ -351,8 +351,8 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
 | Register AI Agent | Register an AI agent with model and capabilities | via capability registry | custom |
-| Trade AI Model | Buy or sell an AI model NFT | via capability registry | ERC-721, custom |
-| Sell Training Data | List a tokenized training dataset for sale | via capability registry | custom |
+| Trade AI Model | Record a trade of access to an AI model: recorded, not settled — no payment is taken and no access is granted | via capability registry | ERC-721, custom |
+| Sell Training Data | Record a sale of a training dataset: recorded, not settled — no payment is taken and no data is delivered | via capability registry | custom |
 | Grant IP License | Grant an IP license to another party | via capability registry | custom |
 
 ---
