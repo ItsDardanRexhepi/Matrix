@@ -34,9 +34,10 @@ refused sends at once left an unrelated receipt wait queued behind them.
 SIBLING AXIS, named and not changed: a receipt read anywhere but through
 `wait_for_receipt_on` (the deploy tools in contracts/, demo.py, and the
 crossborder, dashboard and real-estate reads by hash) settles nothing and gives
-nothing back, and a row this process no longer holds (evicted, or signed by a
-process since restarted) stays SIGNED until its window passes: budget held,
-never handed out.
+nothing back, nor does a send whose receipt nobody waits for (some services
+broadcast and return), and a row this process no longer holds (evicted, or
+signed by a process since restarted) stays SIGNED until its window passes:
+budget held, never handed out.
 """
 
 from __future__ import annotations

@@ -984,7 +984,9 @@ def platform_address(key: str) -> PlatformAddress:
 # signature now holds its budget like one whose fate nobody learned, until a
 # receipt in its slot or its window says otherwise. On the shared manager's
 # send the next transaction takes the nonce the refused one never took, so the
-# budget comes back once that one is mined.
+# budget comes back once that one is mined and its receipt is waited for. A
+# send whose receipt nobody waits for (some services broadcast and return)
+# settles nothing and closes no slot.
 #
 # PER PROCESS, AND THAT IS ENOUGH. A transaction and its receipt wait run in
 # the process that signed it. A row these tables no longer hold (evicted, or

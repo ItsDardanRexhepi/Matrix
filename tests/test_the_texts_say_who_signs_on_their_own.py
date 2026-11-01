@@ -178,6 +178,35 @@ async def test_the_readme_says_what_gives_a_signatures_budget_back(tmp_path):
     assert not stale, f"the README still describes a refusal read at the send: {stale}"
 
 
+#: How a receipt is waited for: `wait_for_receipt_on` and the helpers over it.
+_RECEIPT_WAITS = {"wait_for_receipt_on", "wait_for_receipt", "receipt_within",
+                  "settle_transaction", "_receipt"}
+
+
+def _service_modules_that_send_without_waiting() -> set[str]:
+    found = set()
+    for path in SERVICES.rglob("*.py"):
+        calls = {node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+                 for node in ast.walk(ast.parse(path.read_text())) if isinstance(node, ast.Call)}
+        if calls & {"send_transaction", "send_raw_transaction"} and not calls & _RECEIPT_WAITS:
+            found.add(path.relative_to(SERVICES).as_posix())
+    return found
+
+
+def test_the_readme_says_a_receipt_nobody_waits_for_gives_nothing_back():
+    """Some service modules send and never wait for a receipt, found here from
+    their source; their rows are never settled and never close a slot. The
+    README said a receipt counts when the platform waits for it, "as its
+    services and blockchain capabilities do"."""
+    senders = _service_modules_that_send_without_waiting()
+    assert senders, "re-derive this test: every service module that sends now waits for a receipt"
+    bullet = _sponsorship_bullet()
+    assert "not waited for" in bullet, (
+        f"{sorted(senders)} send without waiting for a receipt, and the README does "
+        f"not say such a send gives nothing back: {bullet}")
+    assert not re.search(r"as its services and (?:the )?blockchain capabilities do", bullet), bullet
+
+
 _CALLED_AN_EXEMPTION = re.compile(
     r"revoke[^.;]{0,160}?(?:listed|unmetered)[^.;]{0,40}?exemption", re.IGNORECASE)
 
