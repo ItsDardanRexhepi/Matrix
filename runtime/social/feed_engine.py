@@ -18,17 +18,21 @@ Architecture
 * **SocialFeedEngine** — SQLite-backed store with a 10 000 event cap.
   Exposes ``ingest()`` (fire-and-forget from the service dispatcher),
   paginated feed queries, trending aggregation, per-actor history,
-  and global stats.
+  and global stats. Each row it stores is also published, as
+  :data:`FEED_STREAM_EVENT`, to the gateway's event broadcaster when one is
+  attached (``attach_broadcaster``), which is what /social/feed/stream
+  sends its subscribers.
 
 Ingest is kept **off the main request path**: the service dispatcher
 creates an ``asyncio.Task`` that calls ``SocialFeedEngine.ingest()``, so
 the caller never awaits it and a failure in it never reaches the caller.
 That is not the same as "never blocks". The ingest's database work —
 the insert, the COUNT(*) that decides pruning, and on the first call a
-full-table seed scan — runs on the synchronous sqlite connection ON the
-event loop, under the database's write lock. While it runs, every other
-coroutine waits. It is short for a small table; it is not free, and a
-slow disk makes it everyone's latency.
+full-table scan that removes what is not public from rows an earlier
+release stored and seeds the ranker — runs on the synchronous sqlite
+connection ON the event loop, under the database's write lock. While it
+runs, every other coroutine waits. It is short for a small table; it is
+not free, and a slow disk makes it everyone's latency.
 """
 
 from __future__ import annotations
@@ -62,6 +66,10 @@ RECENCY_HALF_LIFE = 3600.0
 #: durable outbox reads this word to record the delivery as declined, and
 #: spells it out itself (runtime/durable/wiring.py, FEED_DECLINED_SUMMARY).
 NOT_PUBLISHED_SUMMARY = "not published: the item is not public"
+
+#: The broadcaster event type a stored row is published under, and the one
+#: GET /social/feed/stream subscribes to (gateway/server.py reads it here).
+FEED_STREAM_EVENT = "feed.new_event"
 
 # ── Human-readable action labels ─────────────────────────────────────
 ACTION_LABELS: Dict[str, str] = {
@@ -155,6 +163,12 @@ class FeedEvent:
                 detail = json.loads(detail)
             except (json.JSONDecodeError, TypeError):
                 detail = {}
+        if not isinstance(detail, dict):
+            detail = {}
+        # A row an earlier release stored carried the caller's params; the
+        # engine removes them from the table when it opens it, and a row read
+        # here never hands them on, whoever wrote it.
+        detail.pop("params", None)
         return cls(
             id=row["id"],
             event_type=row["event_type"],
@@ -358,6 +372,13 @@ class SocialFeedEngine:
         self._ranker = FeedRankingEngine()
         self._table_ready = False
         self._init_lock: asyncio.Lock | None = None
+        self._broadcaster: Any = None
+
+    def attach_broadcaster(self, broadcaster: Any) -> None:
+        """Publish each row this engine stores to *broadcaster* (the gateway's
+        ``EventBroadcaster``) as :data:`FEED_STREAM_EVENT`, the event
+        GET /social/feed/stream sends. ``None`` detaches it."""
+        self._broadcaster = broadcaster
 
     # ── Table bootstrap ───────────────────────────────────────────
 
@@ -372,6 +393,7 @@ class SocialFeedEngine:
             await self._db.execute(_CREATE_TABLE)
             for idx_sql in _CREATE_INDEXES:
                 await self._db.execute(idx_sql)
+            await self._remove_what_is_not_public()
             # Seed the ranking engine from existing rows
             rows = await self._db.fetchall(
                 "SELECT event_type, actor FROM social_feed_events"
@@ -379,6 +401,70 @@ class SocialFeedEngine:
             for row in rows:
                 self._ranker.observe(row["event_type"], row["actor"])
             self._table_ready = True
+
+    async def _remove_what_is_not_public(self) -> None:
+        """Hold the rows already in the table to the rules ``ingest`` holds a
+        new one to.
+
+        The door is new; the table is not. A release before it stored every
+        settled action with the caller's params in its detail: a followers-only
+        share with its proof_data, an encrypted message's text, a credential's
+        claims, the privacy service's pins and deletion requests. Nothing aged
+        those rows out but 10 000 newer events, and every read (the feed, an
+        actor's history, trending, the stats) served or counted them. So when
+        the engine opens the table, a row that is not public by the door's
+        rules is deleted, and a row that is public loses the params it carries.
+        It is one transaction: the table is redacted entirely or not at all.
+        """
+        from runtime.blockchain.services.social.visibility import (
+            is_private_action,
+            is_public,
+        )
+
+        rows = await self._db.fetchall(
+            "SELECT id, event_type, detail FROM social_feed_events")
+        drop: list[tuple[str]] = []
+        rewrite: list[tuple[str, str]] = []
+        for row in rows:
+            try:
+                detail = json.loads(row["detail"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                detail = {}
+            if not isinstance(detail, dict):
+                detail = {}
+            params = detail.pop("params", None)
+            if (detail.get("service") == "privacy"
+                    or is_private_action(row["event_type"])
+                    or not is_public(params, detail)):
+                drop.append((row["id"],))
+            elif params is not None:
+                rewrite.append((json.dumps(detail), row["id"]))
+        if not drop and not rewrite:
+            return
+
+        def _redact(conn) -> None:
+            conn.executemany("DELETE FROM social_feed_events WHERE id = ?", drop)
+            conn.executemany(
+                "UPDATE social_feed_events SET detail = ? WHERE id = ?", rewrite)
+
+        await self._db.run_in_transaction(_redact)
+        logger.info(
+            "Feed rows stored before the public-only rule: %d removed, %d "
+            "stripped of the caller's params", len(drop), len(rewrite))
+
+    def _announce(self, event: FeedEvent) -> None:
+        """Publish a stored *event* to the attached broadcaster. A publish
+        failure never undoes or fails the ingest."""
+        broadcaster = self._broadcaster
+        if broadcaster is None:
+            return
+        try:
+            from runtime.social.feed_formatter import FeedFormatter
+
+            broadcaster.publish_dict(FEED_STREAM_EVENT, FeedFormatter.format_event(event))
+        except Exception:
+            logger.debug("feed stream publish failed for %s", event.event_type,
+                         exc_info=True)
 
     # ── Ingest (fire-and-forget) ──────────────────────────────────
 
@@ -402,25 +488,43 @@ class SocialFeedEngine:
         it every settled state-modifying action with the caller's params in
         ``detail["params"]`` — a proof share's ``proof_data``, a "followers"
         visibility included, an encrypted message's plaintext, a credential's
-        claims. Three rules hold at this door, whoever calls it:
+        claims. Four rules hold at this door, whoever calls it:
 
         * an item whose params, or whose detail, say it is not public by the
           platform's one reading (``social.visibility.is_public``, which
           SocialService's own feed uses) is not stored, and the event
-          returned for it carries :data:`NOT_PUBLISHED_SUMMARY`;
+          returned for it carries :data:`NOT_PUBLISHED_SUMMARY`. The
+          dispatcher marks the detail ``private`` when the service's own
+          answer says the item is not public, so the answer is read here
+          as the ripple reads it;
         * the privacy service is never published, as the HTTP ripple has
           never announced it: a zk proof, a pin or a deletion request under
           its caller's address is itself the private fact;
+        * nor is an action that is private by what it is
+          (``visibility.PRIVATE_OPERATIONS``: an encrypted message, a
+          credential issued or presented, a KYC check, a decentralized
+          identifier made, changed or retired), under any name the dispatcher
+          gives it;
         * what is stored never includes the caller's params. Nothing reads
           them back from a row; the row's summary, actor, value and
           transaction hash are what the feed renders.
+
+        A row an earlier release stored is held to the same rules when the
+        engine opens the table (``_remove_what_is_not_public``). A row this
+        door stores is published to the attached broadcaster, so the live
+        stream carries exactly what the feed holds.
         """
         try:
-            from runtime.blockchain.services.social.visibility import is_public
+            from runtime.blockchain.services.social.visibility import (
+                is_private_action,
+                is_public,
+            )
 
             detail = dict(detail or {})
             params = detail.pop("params", None)
-            if detail.get("service") == "privacy" or not is_public(params, detail):
+            if (detail.get("service") == "privacy"
+                    or is_private_action(action)
+                    or not is_public(params, detail)):
                 logger.info("Feed event not published (not public): %s", action)
                 return FeedEvent(event_type=action, summary=NOT_PUBLISHED_SUMMARY)
 
@@ -483,6 +587,9 @@ class SocialFeedEngine:
                     event.ranked_score,
                 ),
             )
+
+            # Stored, so the live stream carries it.
+            self._announce(event)
 
             # Prune if we've grown past the cap
             count_row = await self._db.fetchone(

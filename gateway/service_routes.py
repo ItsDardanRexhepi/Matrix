@@ -938,10 +938,13 @@ class ServiceRoutes:
 
         Privacy actions NEVER ripple (private_transfer / stealth / private_vote /
         confidential_compute and the privacy-backed storage legs all live on the
-        ``privacy`` service). Reads never ripple — by verb where the verb says
-        so, and by name where it does not (``_READ_OPERATIONS``, which is what
-        made this sentence true for the three `verify_*` reads that used to
-        publish). A publish failure can never break the action itself.
+        ``privacy`` service), and neither does an operation that is private by
+        what it is (``visibility.PRIVATE_OPERATIONS``: an encrypted message, a
+        credential, a KYC check, a decentralized identifier's changes). Reads
+        never ripple — by verb where the verb says so, and by name where it
+        does not (``_READ_OPERATIONS``, which is what made this sentence true
+        for the three `verify_*` reads that used to publish). A publish failure
+        can never break the action itself.
 
         AND A REFUSAL IS NOT AN ACTIVITY. The docstring above `_call` said an
         honest failure "raised above" and so never rippled — true of a RAISED
@@ -993,7 +996,14 @@ class ServiceRoutes:
         not announced (`service_dispatcher.is_replay`).
         """
         refused = report_of(result) == FAILURE
-        if service_name == "privacy":
+        # Nor is an operation that is private by what it is: an encrypted
+        # message, a credential issued or presented, a KYC check, a
+        # decentralized identifier made, changed or retired
+        # (social/visibility.py, PRIVATE_OPERATIONS, which the public feed's
+        # door reads too). Its decline is recorded without its actor, as a
+        # privacy action's is.
+        from runtime.blockchain.services.social.visibility import is_private_operation
+        if service_name == "privacy" or is_private_operation(service_name, method_name):
             if refused:
                 self._record_decline(service_name, method_name, result, actor="")
             return

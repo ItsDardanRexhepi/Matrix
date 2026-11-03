@@ -1204,8 +1204,10 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     # was recorded depended on which name the caller happened to use.
     "tokenize_asset": "rwa_tokenized",
     "rwa_fractional_buy": "rwa_purchased",
-    "did_create": "did_created",
-    "credential_issue": "credential_issued",
+    # No event for a decentralized identifier made or a credential issued, nor
+    # for the privacy service's store and pin: the public feed refuses each of
+    # them (social/visibility.py), so naming an event for one would say that
+    # it is announced.
     "soulbound_mint": "soulbound_minted",
     "market_create": "prediction_market_created",
     "market_bet": "prediction_bet_placed",
@@ -1219,8 +1221,6 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     # `ai_agent_register` but published nothing, so whether this state change
     # was recorded depended on which name the caller happened to use.
     "register_agent": "ai_agent_registered",
-    "decentralized_store": "file_stored",
-    "ipfs_pin": "ipfs_content_pinned",
     "game_asset_mint": "game_asset_minted",
     # NEW-10: `mint_game_asset` routes to the SAME service method as
     # `game_asset_mint` but published nothing, so whether this state change
@@ -1975,6 +1975,17 @@ class ServiceDispatcher:
                     }
                     if _claimed_actor:
                         _detail["actor_claimed"] = _claimed_actor
+                    # The service's answer can say what the request did not:
+                    # a share it stored as "followers" when the request
+                    # named no visibility. The ripple reads the answer with
+                    # the request (`is_public(kwargs, result)`); the feed's
+                    # door reads only this entry, so the entry carries the
+                    # answer's verdict in the reading's own word, and the
+                    # door declines it as the ripple does. Only a declined
+                    # entry carries the mark, so no stored row ever does.
+                    from runtime.blockchain.services.social.visibility import is_public
+                    if not is_public(result):
+                        _detail["private"] = True
                     _entry = dict(
                         action=action,
                         actor=_actor,

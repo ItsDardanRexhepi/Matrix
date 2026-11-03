@@ -1966,7 +1966,9 @@ class GatewayServer:
         """GET /social/feed/stream — SSE stream of live feed events.
 
         Uses the :class:`EventBroadcaster` to push new
-        ``feed.new_event`` broadcasts to connected clients.
+        ``feed.new_event`` broadcasts to connected clients: each one is a row
+        the public feed stored, published by ``SocialFeedEngine`` as it stores
+        it (``FEED_STREAM_EVENT``).
         """
         # Refuse BEFORE preparing the response, as /api/v1/events/stream does:
         # once a 200 text/event-stream is out, a rejection can only travel as a
@@ -1986,12 +1988,13 @@ class GatewayServer:
         # is `async` and was never awaited; and BroadcasterCapacityError — which
         # the method's own docstring tells callers to translate — was unhandled.
         from gateway.event_broadcaster import BroadcasterCapacityError
+        from runtime.social.feed_engine import FEED_STREAM_EVENT
 
         peer = request.remote or "unknown"
         try:
             sub = await broadcaster.register(
                 remote_ip=peer,
-                types={"feed.new_event"},
+                types={FEED_STREAM_EVENT},
             )
         except BroadcasterCapacityError as exc:
             # Per the broadcaster's contract: global cap -> 503, per-IP -> 429
@@ -2621,6 +2624,10 @@ class GatewayServer:
             from runtime.social.feed_engine import SocialFeedEngine
             db = self.react_loop.memory.db
             self.social_feed_engine = SocialFeedEngine(db)
+            # What the engine stores it publishes on the gateway's
+            # broadcaster, which is what /social/feed/stream sends.
+            self.social_feed_engine.attach_broadcaster(
+                getattr(self, "event_broadcaster", None))
             # Attach to the ServiceDispatcher nested inside the ReAct
             # ToolDispatcher so state-modifying actions are automatically
             # published to the feed.

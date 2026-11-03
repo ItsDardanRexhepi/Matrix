@@ -63,13 +63,18 @@ dispatcher hands every settled state-changing action to the public,
 unauthenticated `/social/feed`, and `SocialFeedEngine.ingest` stores none whose
 visibility, at the top of its params or in their `proof_data`, is anything but
 the word `public` in some letter case, or that sets a `private` or `is_private`
-flag; it never stores the privacy service's actions; and what it stores never
-includes the request body. A stored row carries the action, its service, the
-identity the entry point bound (and, when the request named a different one,
-that name too), the transaction hash and the figure that moved. The HTTP routes'
-ripple to every `/api/v1/events/stream` subscriber refuses the same items. All
-three surfaces decide with one function, the one `get_feed` uses
-(`social/visibility.py`, `is_public`).
+flag, read in the request and in the service's answer; it never stores the
+privacy service's actions, nor an operation that is private by what it is (an
+encrypted message, a credential issued or presented, a KYC check, a
+decentralized identifier made, changed or retired: `PRIVATE_OPERATIONS`); and
+what it stores never includes the request body. A stored row carries the
+action, its service, the identity the entry point bound (and, when the request
+named a different one, that name too), the transaction hash and the figure that
+moved. Rows an earlier release stored are held to the same rules when the feed
+opens its table, and each row the feed stores is sent at once to
+`/social/feed/stream`. The HTTP routes' ripple to every `/api/v1/events/stream`
+subscriber refuses the same items. All three surfaces decide with one function,
+the one `get_feed` uses (`social/visibility.py`, `is_public`).
 
 ## The score
 

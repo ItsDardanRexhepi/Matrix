@@ -28,6 +28,19 @@ reading, because a caller writes these values:
     is not public;
   * an item that says none of this is public: a plain post carries no
     visibility, and that has always meant public.
+
+Some operations are private by what they are, whatever their params say, and
+for those the item's own fields decide nothing: :data:`PRIVATE_OPERATIONS`. A
+message sent encrypted to one recipient, a credential issued to its holder, a
+credential presented to one verifier, an identity check with the KYC provider
+and the credential it earns, and a decentralized identifier made, changed or
+retired (its text does not name its owner's wallet, and an announcement of who
+made it would). Announcing one under the caller's address tells everyone the
+private fact itself, as a pin or a deletion request on the privacy service
+would, so the public feed and the ripple publish none of them; SocialService's
+own feed never holds them. The public feed is handed action names, and
+:func:`is_private_action` reads an action by the method it runs, so a second
+name for one of these is the same operation.
 """
 
 from __future__ import annotations
@@ -35,6 +48,36 @@ from __future__ import annotations
 from typing import Any
 
 _PRIVATE_FLAGS = ("private", "is_private")
+
+#: (service, method) for each operation whose occurrence is itself private.
+#: The privacy service is not listed: every operation on it is private, and
+#: both surfaces refuse it by its name.
+PRIVATE_OPERATIONS: frozenset = frozenset({
+    ("social", "send_encrypted_message"),
+    ("did_identity", "create_did"),
+    ("did_identity", "update_did"),
+    ("did_identity", "deactivate_did"),
+    ("did_identity", "issue_credential"),
+    ("did_identity", "selective_disclose"),
+    ("kyc", "start_kyc"),
+    ("kyc", "issue_kyc_credential"),
+})
+
+
+def is_private_operation(service: Any, method: Any) -> bool:
+    """True when *service*.*method* is one of :data:`PRIVATE_OPERATIONS`."""
+    return (service, method) in PRIVATE_OPERATIONS
+
+
+def is_private_action(action: Any) -> bool:
+    """True when the dispatcher action *action* runs one of
+    :data:`PRIVATE_OPERATIONS`, under any name ``ACTION_MAP`` gives it."""
+    if not isinstance(action, str):
+        return False
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+
+    target = ACTION_MAP.get(action)
+    return bool(target) and is_private_operation(target[0], target[1])
 
 
 def _says_public(value: Any) -> bool:

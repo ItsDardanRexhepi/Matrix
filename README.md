@@ -617,10 +617,12 @@ check behind it:
   gives, instead of the platform quietly agreeing. An integration holding
   the operator key may name the user it acts for when no session is
   presented, and the record says the operator named that user rather than
-  labelling it the way it labels a signed-in session. The one deliberate
-  exception is a privacy action refused on the `/api/v1` path: its decline
-  is recorded with no actor and no claim, because naming who was refused
-  is exactly what the privacy exclusion exists to prevent
+  labelling it the way it labels a signed-in session. The deliberate
+  exceptions are a privacy action and an operation that is private by
+  what it is (an encrypted message, a credential, a KYC check, a
+  decentralized identifier's changes) refused on the `/api/v1` path: its
+  decline is recorded with no actor and no claim, because naming who was
+  refused is exactly what the privacy exclusion exists to prevent
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and

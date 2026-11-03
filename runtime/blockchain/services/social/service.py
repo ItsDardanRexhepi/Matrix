@@ -273,11 +273,15 @@ class SocialService:
         `send_message` is `share_proof`, so a followers-only share used to be
         stored there with its proof_data and served to anyone. That feed's own
         ingest (`SocialFeedEngine.ingest`) now refuses an item this reading
-        calls non-public, refuses the privacy service, and stores no caller
-        params at all; the HTTP ripple refuses the same items. All three
-        decide with ONE function, ``visibility.is_public``, which this method
-        is. A visibility at the top of an item does not outrank the one in its
-        ``proof_data``: both must say public."""
+        calls non-public, or that the service's answer calls non-public,
+        refuses the privacy service and every operation that is private by
+        what it is (an encrypted message, a credential, a KYC check:
+        ``visibility.PRIVATE_OPERATIONS``), and stores no caller params at
+        all, and the rows an earlier release stored are held to the same rules
+        when the feed opens its table; the HTTP ripple refuses the same items.
+        All three decide with ONE function, ``visibility.is_public``, which
+        this method is. A visibility at the top of an item does not outrank
+        the one in its ``proof_data``: both must say public."""
         return is_public(item)
 
     async def get_feed(self, address: str, limit: int = 50, mode: str = "latest") -> list:
