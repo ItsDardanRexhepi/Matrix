@@ -286,7 +286,13 @@ check behind it:
   executable function body comes back `not_auditable`, never "no
   vulnerabilities detected", and no security badge is issued on it. The
   agent's `audit_contract` skill says NOT AUDITABLE too, and it lists a
-  contract's findings by rule id instead of failing on them
+  contract's findings by rule id instead of failing on them. The agents'
+  pre-action gate refuses to deploy such a source, saying it could not be
+  judged; compiling it, or asking the `security_audit` tool about it,
+  deploys nothing and gets the report. Whether there is code to judge is
+  read on the code alone — a comment or the inside of a string literal is
+  not code — in one pass, so its cost grows with the source and not with
+  its square
 - **A skill runs on the server's configuration, not the model's.** The
   agent's chain skills (balance, transaction lookup, gas estimate) read the
   chain this gateway is configured for, through the platform's shared

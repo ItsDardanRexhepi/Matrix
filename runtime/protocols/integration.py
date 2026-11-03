@@ -371,6 +371,18 @@ class ProtocolStack:
     # ── Pre-action: runs BEFORE each tool call ───────────────────────
 
     @staticmethod
+    def _deploys(tool_name: str, arguments: Any) -> bool:
+        """Whether this contract-tool call deploys or signs: a deployment tool,
+        a dispatched platform action or a conversion (which deploys where the
+        operator turned on auto_deploy), or a twin action that signs with the
+        platform's key. Compile, call, verify and the audit tool read only."""
+        if tool_name in ("deploy_contract", "platform_action", "contract_conversion"):
+            return True
+        from runtime.security.action_map import canonical_action
+        _action_type, signs = canonical_action(tool_name, arguments)
+        return signs is not False and tool_name != "security_audit"
+
+    @staticmethod
     def _deny_on_gate_fault(result: dict[str, Any], action_type: str, gate: str,
                             phase: str, *, call: tuple[str, Any] | None = None) -> bool:
         """The ONE fail-direction for a gate that faulted, whichever gate it is.
@@ -629,6 +641,15 @@ class ProtocolStack:
                         source_code, arguments.get("contract_name", "")
                     )
                     blocked = self._auditor.should_block(audit_report)
+                    # A source nobody could judge (no function body: an
+                    # interface, a constants library, a Vyper file) refuses a
+                    # call that DEPLOYS or signs. A look at it — compile, an
+                    # audit — deploys nothing, and refusing it kept the
+                    # security_audit tool from answering about the very source
+                    # it was asked about; its report rides along instead.
+                    if blocked and getattr(audit_report, "auditable", True) is False \
+                            and not self._deploys(tool_name, arguments):
+                        blocked = False
                 except Exception:
                     logger.exception("Glasswing audit pre-action failed")
                     # An audit that raised is an audit that was not performed,
@@ -653,10 +674,17 @@ class ProtocolStack:
                         result["denial_reason"] = (
                             f"Glasswing audit blocked deployment: {summary}"
                         )
-                        result["morpheus_message"] = (
-                            f"[Morpheus] Security audit failed. {summary} "
-                            "Review the findings and fix the vulnerabilities before deploying."
-                        )
+                        if getattr(audit_report, "auditable", True) is not False:
+                            result["morpheus_message"] = (
+                                f"[Morpheus] Security audit failed. {summary} "
+                                "Review the findings and fix the vulnerabilities before deploying."
+                            )
+                        else:
+                            result["morpheus_message"] = (
+                                f"[Morpheus] {summary} The source could not be judged, "
+                                "so it is not deployed: add the contract's implementation "
+                                "and audit it again."
+                            )
                         return result
                     if findings and result.get("risk"):
                         # Findings exist but not blocking — feed to Morpheus as
