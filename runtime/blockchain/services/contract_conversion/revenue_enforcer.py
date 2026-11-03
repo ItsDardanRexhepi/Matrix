@@ -202,11 +202,16 @@ class RevenueEnforcer:
         source = self._inject_before_closing_brace(source, _ERC20_FEE_FUNCTION)
         source = self._declare_fee_token_interface(source)
 
-        # 4. Inject setters, guarded by an owner the contract actually has
+        # 4. Inject setters, guarded by an owner the contract actually has.
+        # The admin's modifier goes inside the contract, after its opening
+        # brace: by now the first `function` in the file can be the
+        # file-level IMatrixFeeToken interface's (step 3), and a modifier put
+        # before it lands in the interface, where platformFeeAdmin does not
+        # exist and the draft does not compile.
         has_owner = self._has_owner_modifier(source)
         if not has_owner:
+            source = self._inject_after_contract_open(source, _FEE_ADMIN_MODIFIER)
             source = self._inject_after_contract_open(source, _FEE_ADMIN_STATE)
-            source = self._inject_before_first_function(source, _FEE_ADMIN_MODIFIER)
         source = self._inject_before_closing_brace(
             source, _SET_FEE_RECIPIENT.format(
                 guard="onlyOwner" if has_owner else "onlyPlatformFeeAdmin"))
