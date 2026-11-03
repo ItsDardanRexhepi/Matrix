@@ -227,8 +227,13 @@ async def test_the_seven_gated_fabrications_now_disclose():
     and is untouched.
     """
     svc = _armed()
+    owner = "0x" + "0a" * 20
+
+    async def _owner_of(_collection, _token_id):
+        return owner          # the armed chain answers the one owner read
+    svc._owner_of = _owner_of
     for label, record in [
-        ("fractionalize", await svc.fractionalize("0xC", 1, 10, 1.0)),
+        ("fractionalize", await svc.fractionalize("0xC", 1, 10, 1.0, owner=owner)),
         ("rent", await svc.rent("0xC", 1, "0xR", 7, 1.0)),
         ("royalty_claim", await svc.royalty_claim("0xC", 1, "0xA")),
         ("batch_mint", await svc.batch_mint("0xC", "0xA", 2, {})),

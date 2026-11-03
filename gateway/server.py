@@ -1125,17 +1125,19 @@ class GatewayServer:
         # client's AuthResponse.walletAddress is non-optional so return "" when
         # none exists yet.
         user_key = f"apple:{sub}"
-        # T2.4: first sign-in and the linked wallet are read back from the
-        # apple_users table — before this, isNewUser was always true and
-        # walletAddress always "" (a get_by_address the store never had).
-        is_new_user = await self.apple_users.touch(sub)
-        wallet_address = self.apple_users.wallet_for(sub)
-
         token = create_session_token()
         now = time.time()
         expires_at = now + self._wallet_session_ttl
         await self.wallet_sessions.add(
             token=token, address=user_key, issued_at=now, expires_at=expires_at)
+        # T2.4: first sign-in and the linked wallet are read back from the
+        # apple_users table — before this, isNewUser was always true and
+        # walletAddress always "" (a get_by_address the store never had).
+        # Recorded once the session exists: recorded first, a sign-in whose
+        # session could not be stored answered 500 and its retry was told it
+        # was not new.
+        is_new_user = await self.apple_users.touch(sub)
+        wallet_address = self.apple_users.wallet_for(sub)
 
         return web.json_response({
             "token": token,
@@ -1323,6 +1325,25 @@ class GatewayServer:
                 "account delete: push-token removal failed for %s; the account's "
                 "devices are still registered and the deletion is not complete",
                 subject)
+            return web.json_response(
+                {"success": False, "error": "storage failure"}, status=503)
+
+        # The sign-in itself: the Apple user record (its first sign-in and the
+        # wallet linked to it) and every other session of the account. Left
+        # behind, the next sign-in with the same Apple ID was "not new" and
+        # resolved to the deleted account's wallet, and a second device stayed
+        # signed in until its token expired. Before the presented session, so
+        # a failure here still leaves the client a credential to retry with.
+        try:
+            if subject.startswith("apple:"):
+                await self.apple_users.remove(subject[len("apple:"):])
+            for other in [t for t, s in self.wallet_sessions.items()
+                          if s.get("address") == subject and t != token]:
+                await self.wallet_sessions.remove(other)
+        except Exception:
+            logger.exception(
+                "account delete: removing the sign-in record or the other sessions "
+                "failed for %s; the deletion is not complete", subject)
             return web.json_response(
                 {"success": False, "error": "storage failure"}, status=503)
 
@@ -2270,17 +2291,18 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
         # NEW-7: issue_badge raises ValueError on a rejected/invalid request
-        # (e.g. a missing contract address or an audit report that does not
+        # (an address that is not one, no source, or an audit that does not
         # qualify). Uncaught, that surfaced as HTTP 500 — the server blaming
         # itself for the caller's bad input. 400 is the honest code.
+        if isinstance(body, dict) and "audit_report" in body:
+            # A caller that sends one is supplying the conclusion the badge is
+            # supposed to attest. It was logged and ignored, and the badge was
+            # issued with nothing in the answer to say so; it is refused.
+            return web.json_response(
+                {"status": "rejected",
+                 "error": "audit_report is not accepted: the platform audits the "
+                          "submitted source_code itself"}, status=400)
         try:
-            if "audit_report" in body:
-                # Not honoured, and not silently dropped either: a caller that
-                # sends one is trying to supply the conclusion the badge is
-                # supposed to attest.
-                logger.warning(
-                    "badge issue: ignoring a caller-supplied audit_report — the "
-                    "platform audits the source itself")
             result = await self.badge_manager.issue_badge(
                 contract_address=str(body.get("contract_address", "")),
                 contract_name=str(body.get("contract_name", "")),
@@ -3542,11 +3564,17 @@ class GatewayServer:
         """Enforce rate limits, keyed by the strongest identity available.
 
         Precedence:
-          1. ``X-Wallet-Session`` header → per-wallet-address bucket
-             (SIWE-authenticated traffic).
+          1. A live wallet session — ``X-Wallet-Session``, or the
+             ``Authorization: Bearer`` the iOS app presents its Apple session
+             as, read the way the auth wall reads it — → per-account bucket.
           2. ``Authorization: Bearer <api_key>`` → per-API-key bucket
              (operator / integration tokens).
           3. Fall back to the client IP for anonymous traffic.
+
+        The session used to be read from ``X-Wallet-Session`` alone, so every
+        request of every signed-in app user fell into the anonymous bucket of
+        its address: users behind one carrier NAT shared its 20 requests a
+        minute and were answered 429 while each held a valid session.
         """
         if request.method == "OPTIONS":
             return await handler(request)
@@ -3554,13 +3582,7 @@ class GatewayServer:
         rate_key: str
         limiter: RateLimiter
 
-        wallet_token = request.headers.get("X-Wallet-Session", "").strip()
-        wallet_session = None
-        if wallet_token:
-            try:
-                wallet_session = self.wallet_sessions.get(wallet_token)
-            except Exception as exc:  # defensive — store unavailable, etc.
-                logger.debug("wallet session lookup failed: %s", exc)
+        wallet_session = self._wallet_session_from_request(request)
 
         if (
             wallet_session

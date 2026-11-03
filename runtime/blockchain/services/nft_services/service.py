@@ -967,28 +967,43 @@ class NFTService:
 
     async def fractionalize(
         self, collection: str, token_id: int, fractions: int, price_per_fraction: float,
-        owner: str = "",
+        owner: str = "", caller_identity: str = "", caller_source: str | None = None,
     ) -> dict[str, Any]:
         """Fractionalize an NFT into fungible shares.
 
-        ``owner`` is the identity the route bound: the security middleware's
-        (a session's identity, else the caller-written X-Wallet-Address header or
+        Who asks is ``caller_identity`` when the dispatcher bound one (it
+        outranks anything in the request's params), else ``owner``: on the
+        route, the identity the security middleware bound for the request (a
+        session's identity, else the caller-written X-Wallet-Address header or
         a body field), else the body ``owner``. It is authenticated only when a
-        session was presented. The route demanded it
-        and then dropped it — an authorization input that governed nothing
-        (the audit's §CD sibling pass over NEW-89). It is recorded here and
-        checked against the token's on-chain owner the moment a live contract
-        makes that readable; until then the record names who claimed it, so a
-        fractionalisation can never be attributed to nobody.
+        session was presented.
+
+        With a live contract the token's on-chain owner is read, off the event
+        loop, and compared with who asks; a caller that names no one, a token
+        whose owner cannot be read (none minted, an address that is not an
+        ERC-721, a failed node) and a caller who is not the owner are each
+        refused before anything is recorded. Until a contract is live the
+        refusal names who claimed it, so a fractionalisation is never
+        attributed to nobody.
         """
+        from runtime.auth.identity import same_caller
+        claimant = str(caller_identity or owner or "").strip()
         if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
             return not_deployed_response("nft_services", {
                 "operation": "fractionalize",
                 "requested": {"collection": collection, "token_id": token_id,
-                              "fractions": fractions, "owner": owner},
+                              "fractions": fractions, "owner": claimant},
             })
+        if not claimant:
+            return {"status": "error", "error": "owner_required",
+                    "detail": "a fractionalisation names the token's owner, and this "
+                              "request names no one; nothing was recorded"}
         on_chain_owner = await self._owner_of(collection, token_id)
-        if on_chain_owner and owner and on_chain_owner.lower() != owner.lower():
+        if on_chain_owner is None:
+            return {"status": "error", "error": "owner_unverifiable",
+                    "detail": "the token's on-chain owner could not be read, so who "
+                              "may fractionalize it cannot be checked; nothing was recorded"}
+        if not same_caller(on_chain_owner, claimant):
             return {"status": "error", "error": "not_token_owner",
                     "detail": "only the token's owner may fractionalize it"}
         frac_id = f"frac_{uuid.uuid4().hex[:16]}"
@@ -1000,27 +1015,36 @@ class NFTService:
                 "total_fractions": fractions,
                 "price_per_fraction": price_per_fraction,
                 "sold_fractions": 0,
-                "owner": owner,
+                "owner": claimant,
             },
             disclosure=(
-                "No fraction contract was deployed and no token was locked. "
-                "The on-chain owner WAS read and checked, which is why this "
-                "refuses a non-owner — but the NFT is untouched and the "
-                "fractions exist only in this record."
+                "No fraction contract was deployed and no token was locked. The "
+                "token's on-chain owner was read and is the one who asked — a "
+                "caller who is not the owner, or whose owner cannot be read, is "
+                "refused — but the NFT is untouched and the fractions exist only "
+                "in this record."
             ),
         )
         self._fractions[frac_id] = record
         logger.info("NFT fractionalisation recorded (unsettled): id=%s", frac_id)
         return record
 
-    async def _owner_of(self, collection: str, token_id: int) -> str:
-        """The token's on-chain owner, or "" when it cannot be read."""
+    #: Seconds an ownerOf read may take before it counts as unreadable.
+    _OWNER_READ_TIMEOUT = 10.0
+
+    async def _owner_of(self, collection: str, token_id: int) -> str | None:
+        """The token's on-chain owner, or None when it cannot be read. The
+        call is synchronous JSON-RPC, so it runs in a worker thread, bounded:
+        on the event loop a slow node stalled every other request."""
+        import asyncio
         try:
             contract = self._web3.load_contract(collection, ERC721_OWNER_ABI)
-            return str(contract.functions.ownerOf(int(token_id)).call())
-        except Exception as exc:   # unreadable chain / wrong ABI / missing token
+            call = contract.functions.ownerOf(int(token_id)).call
+            return str(await asyncio.wait_for(asyncio.to_thread(call),
+                                              timeout=self._OWNER_READ_TIMEOUT))
+        except Exception as exc:   # unreadable chain / wrong ABI / missing token / timeout
             logger.debug("ownerOf unavailable for %s#%s: %s", collection, token_id, exc)
-            return ""
+            return None
 
     async def rent(
         self, collection: str, token_id: int, renter: str, duration_days: int, price: float,

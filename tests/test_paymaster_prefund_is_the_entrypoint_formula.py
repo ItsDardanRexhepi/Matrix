@@ -161,8 +161,8 @@ async def test_a_request_under_the_real_prefund_still_signs(
 async def test_an_unconfigured_cap_still_prices_nothing(
         aiohttp_client, tmp_path, monkeypatch):
     """SCOPE PIN. With no cap configured the route must not price the request
-    at all — an operator with no policy sees exactly the previous behaviour,
-    including no dependency on the price feed."""
+    at all — an operator with no policy has nothing metered and no dependency
+    on the price feed."""
     class _Exploding:
         def __init__(self, *a, **kw): pass
         async def eth_usd(self, **kw):

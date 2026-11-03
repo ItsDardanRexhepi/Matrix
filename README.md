@@ -221,7 +221,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 7,267 tests, run against the versions
+automated suite of 7,453 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -290,7 +290,19 @@ check behind it:
   executable function body comes back `not_auditable`, never "no
   vulnerabilities detected", and no security badge is issued on it. The
   agent's `audit_contract` skill says NOT AUDITABLE too, and it lists a
-  contract's findings by rule id instead of failing on them
+  contract's findings by rule id instead of failing on them. The agents'
+  pre-action gate refuses to deploy such a source, saying it could not be
+  judged; compiling it, or asking the `security_audit` tool about it,
+  deploys nothing and gets the report. Whether there is code to judge is
+  read on the code alone — a comment or the inside of a string literal is
+  not code — in one pass, so its cost grows with the source and not with
+  its square
+- **An owner check that cannot read the owner refuses.** An NFT
+  fractionalisation is recorded only for the token's on-chain owner, read
+  off the event loop and compared with who asks — on a dispatched action,
+  the identity the dispatcher bound, not an owner the request names. A
+  request that names no one, a token whose owner cannot be read and a
+  caller who is not the owner are each refused before anything is recorded
 - **A skill runs on the server's configuration, not the model's.** The
   agent's chain skills (balance, transaction lookup, gas estimate) read the
   chain this gateway is configured for, through the platform's shared
@@ -330,8 +342,12 @@ check behind it:
   else gives nothing back, and neither does a send whose receipt is not
   waited for, as some services broadcast and return. Every web3
   connection the running platform opens sends a raw transaction once and
-  never retries it. An
-  operator who configures no cap keeps the previous behaviour
+  never retries it. A cap that is not a finite, non-negative number of
+  dollars is read as zero, and an action the allowlist refuses is refused
+  before it is priced, so a price feed that is down does not turn that
+  refusal into a 503. An operator who configures no cap has nothing
+  metered; the request is still held to the identity bound for it, and a
+  body `sender` that contradicts that identity is refused
 - **The deployment tools will not put the old paymaster on a chain.** The
   paymaster the platform uses is the ERC-4337 verifying one, which pays
   gas out of its own EntryPoint deposit. Its predecessor can send any
@@ -606,6 +622,16 @@ check behind it:
   rather than adopted. Which agent answers is settled by one resolver, so
   a different spelling of a privileged agent's name is not a way past the
   operator check
+- **A user session acts only as itself.** Where a request names who acts —
+  a listing's seller, a purchase's buyer, the user whose loyalty points are
+  redeemed, a staker, a contributor, a proposer, a borrower, a payment's
+  payer, the creator of a community, a DAO or an asset — a user session must
+  name the identity it is bound to, in any spelling of it, on the `/api/v1`
+  route and on every dispatcher that runs the same operation by name; naming
+  anyone else, or no one, is refused before the service runs. A session
+  bound to no wallet acts as its own `apple:<sub>`, and an address it has not
+  proven is not its own. The operator key still names the party it acts for
+  (`runtime/access_policy.py`, `SESSION_ACTS_AS`)
 - **A record names who the platform resolved, not who the request said.**
   The attestation, the decline record, the broadcast record and the public
   live feed are all attributed to the identity the entry point bound for
@@ -626,7 +652,10 @@ check behind it:
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and
-  removes nothing, rather than reporting success over data it left behind
+  removes nothing, rather than reporting success over data it left behind.
+  The sign-in goes with it: every session of the account, on every device,
+  and the Apple sign-in record with the wallet linked to it, so the same
+  Apple ID signing in again is a new user
 - **A payment nobody confirmed is not a payment.** A subscription
   renewal is booked only when the payment gateway says plainly that the
   charge went through, and a gateway is not this platform: the rule that
@@ -1088,7 +1117,9 @@ launch:
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
 - **Per-wallet rate limiting** — three token buckets, keyed by the
-  wallet session, then the operator key, then the client IP. Each has
+  wallet session (the `X-Wallet-Session` header or the
+  `Authorization: Bearer` an app presents its sign-in as, per account),
+  then the operator key, then the client IP. Each has
   its own limit: `gateway.rate_limit_rpm_wallet` and
   `gateway.rate_limit_burst_wallet`; `…_authenticated` for the operator
   key, which `gateway.rate_limit_rpm` and `gateway.rate_limit_burst`
@@ -1136,7 +1167,10 @@ launch:
 - **Foundry contract tests** — `foundry.toml` pins solc 0.8.20 and
   `scripts/build-contracts.sh` is a one-shot bootstrap that installs
   forge-std + OpenZeppelin, compiles, and runs every test under
-  `contracts/test/`.
+  `contracts/test/`. Among what they hold: `MatrixDAO` weighs a vote by the
+  least voting power the voter held from the proposal's snapshot through
+  the vote, so ETH deposited in the block before a proposal and withdrawn
+  at once does not vote on it.
 
 ```bash
 # TLS-terminated production stack (gateway + Caddy)
@@ -1223,14 +1257,20 @@ The gateway serves a built-in web interface:
 A contract whose source passes the platform's own Glasswing audit can be
 issued a security badge with `POST /badge/issue` (behind the gateway's API
 key); the gateway audits the source itself, so a request cannot supply the
-verdict. A badge is a record in the gateway's database, stored with a hash of
-that audit report, with a page (`/badge/{badge_id}`), a status endpoint and an
-embed snippet. No EAS attestation is written for a badge, so the gateway that
+verdict, and a request that brings an `audit_report` is refused. A badge is
+a record in the gateway's database for a contract address (a 20-byte hex
+address, or no badge), stored with a hash of that audit report and the
+sha256 of the exact source audited (`source_sha256`, which the badge's
+status and the registry show), with a page (`/badge/{badge_id}`), a status
+endpoint and an embed snippet. The badge says which source passed; it does
+not check that the contract deployed at the address was compiled from that
+source. No EAS attestation is written for a badge, so the gateway that
 issued it is the only place to check one. The registry at `/badges` is public,
 but the badge page, its status, its embed and `/badge/widget.js` are not in the
 gateway's public set: with an API key set, a visitor without the key is
 answered 401 on each. A badge expires after one year; `BadgeManager` has a
-renewal method, but no route calls it.
+renewal method, which re-audits the badge's own source under its own name
+and refuses a revoked badge, but no route calls it.
 
 See `/glasswing` for the badge registry.
 

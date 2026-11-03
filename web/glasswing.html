@@ -294,7 +294,7 @@ a:hover{text-decoration:underline}
     <div class="badge-features">
       <div class="badge-feature">
         <div class="badge-feature-title">Bound to an Audit</div>
-        <div class="badge-feature-desc">A badge is issued only on the platform's own Glasswing audit of the submitted source, and its record keeps a hash of that audit report. Badges are kept in this gateway's database; they are not written on-chain.</div>
+        <div class="badge-feature-desc">A badge is issued only on the platform's own Glasswing audit of the submitted source, for a contract address, and its record keeps a hash of that audit report and the sha256 of the exact source audited. It names which source passed; it does not check that the contract at the address was compiled from it. Badges are kept in this gateway's database; they are not written on-chain.</div>
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Embeddable Widget</div>

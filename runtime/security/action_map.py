@@ -18,6 +18,8 @@ against the installed gate, when the package is present.
 """
 from __future__ import annotations
 
+import math
+
 from typing import Any
 
 # The label for a platform-key-signed action no more specific word describes.
@@ -180,15 +182,22 @@ def allowance_violation(tool_name: str, arguments: Any, config: Any) -> str | No
         security = {}
     try:
         cap = float(security.get("platform_allowance_cap", 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         cap = 0.0
-    if cap <= 0:
+    # A cap that is not a finite amount bounds nothing: infinity allowed any
+    # approve, and NaN is never exceeded.
+    if not math.isfinite(cap) or cap <= 0:
         return ("approve with the platform key is disabled: it grants a spender rights over the "
                 "platform's own tokens; set security.platform_allowance_cap to allow a bounded amount")
     try:
         amount = float(args.get("amount", 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: an integer too large for a float raised out of the
+        # check instead of refusing.
         return "approve amount is not a number"
+    if not math.isfinite(amount):
+        # NaN compares false with everything, so it passed `amount > cap`.
+        return "approve amount is not a finite number"
     if amount <= 0 or amount > cap:
         return f"approve amount {amount} exceeds security.platform_allowance_cap ({cap}) or is not positive"
     return None
