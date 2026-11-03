@@ -524,6 +524,17 @@ class ProtocolStack:
         # frame's fail direction (_deny_on_gate_fault). App-side Morpheus is UX
         # only; THIS is the boundary.
         if self._morpheus_security is None and self._morpheus_init_failed:
+            # A gate that could not be constructed is tried again, here, before
+            # this call is judged: the failure was cached with the stack for
+            # its life, so a transient fault (a locked database) refused every
+            # value-moving call "Please try again" and trying again never could.
+            try:
+                from runtime.security import get_morpheus_security
+                self._morpheus_security = get_morpheus_security(self.config)
+                self._morpheus_init_failed = False
+            except Exception:
+                logger.exception("MorpheusSecurity still cannot be constructed")
+        if self._morpheus_security is None and self._morpheus_init_failed:
             # The gate could not be CONSTRUCTED. That is a fault, not a posture,
             # and it gets the same fail-direction the evaluate-time fault gets:
             # a value-moving or unrecognised action must not proceed ungated.

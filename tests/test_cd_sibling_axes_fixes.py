@@ -94,9 +94,16 @@ async def test_a_a_handler_without_the_parameter_is_unaffected():
 
 # ── the fail-direction class: a fault is not a posture ───────────────────────
 
-async def test_b_a_gate_that_failed_to_construct_fails_closed():
+async def test_b_a_gate_that_failed_to_construct_fails_closed(monkeypatch):
     """The evaluate-time fault fails closed. The INIT-time one skipped the whole
-    Morpheus block, so a value-moving call executed ungated."""
+    Morpheus block, so a value-moving call executed ungated. A gate that failed
+    to construct is tried again on the next call; while it still cannot be
+    constructed, the call fails closed."""
+    import runtime.security as seam
+
+    def _still_broken(*_a, **_k):
+        raise RuntimeError("the gate still cannot be constructed")
+    monkeypatch.setattr(seam, "get_morpheus_security", _still_broken)
     stack = _bare_stack()
     stack._morpheus_init_failed = True
 
