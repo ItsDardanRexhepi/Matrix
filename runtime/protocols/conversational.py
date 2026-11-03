@@ -301,7 +301,9 @@ class ConversationalLayer:
 
         state = detected_state.get("state", "focused")
 
-        # Only generate initiative for stressed or uncertain states
+        # Initiative for stressed or uncertain states, and for a strategic user
+        # after several interactions (below) — not "only" the first two, which
+        # this comment used to say.
         if state == "stressed":
             return ("I notice things seem time-sensitive. "
                     "Want me to prioritise the most critical items first?")

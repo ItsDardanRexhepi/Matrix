@@ -52,8 +52,12 @@ class FiatETHConversion:
             **cb_cfg.get("fallback_rates", {}),
         }
 
-        # Simple cache: pair -> (rate, timestamp)
-        self._rate_cache: dict[str, tuple[float, int]] = {}
+        # Simple cache: pair -> (rate, timestamp, source). The source is kept
+        # because a cached rate is only as good as where it came from: served
+        # as "cache", a fallback-table constant read as a market rate to
+        # every caller inside the TTL, which undid 14-A on the second quote
+        # and on every send_payment (it quotes, then converts).
+        self._rate_cache: dict[str, tuple[float, int, str]] = {}
         self._cache_ttl: int = int(cb_cfg.get("rate_cache_ttl", 60))
 
     async def get_rate(
@@ -93,7 +97,8 @@ class FiatETHConversion:
                 "rate": cached[0],
                 "from": from_currency,
                 "to": to_currency,
-                "source": "cache",
+                "source": cached[2],
+                "cached": True,
                 "timestamp": cached[1],
             }
 
@@ -105,7 +110,7 @@ class FiatETHConversion:
             rate = self._cross_rate(from_currency, to_currency)
             source = "fallback"
 
-        self._rate_cache[pair] = (rate, now)
+        self._rate_cache[pair] = (rate, now, source)
 
         return {
             "rate": round(rate, 8),

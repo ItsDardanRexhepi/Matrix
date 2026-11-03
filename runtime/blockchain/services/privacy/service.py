@@ -168,9 +168,14 @@ class PrivacyService:
         return commitment
 
     async def check_dependencies(self, user: str) -> dict:
-        """Check all platform dependencies before deletion.
+        """Report what would block a deletion, and that none can happen yet.
 
-        Queries across all components for data that cannot be deleted.
+        It does not query across the platform's components, which this used to
+        say: the checker it delegates to knows only what was declared to it
+        (see dependency_checker). And data deletion is offline (NEW-38). So
+        ``can_delete`` is False whatever the dependencies say: it used to be
+        True for every real user, over a live action, on a check that looked
+        at nothing and a deletion that cannot run.
 
         Args:
             user: User's wallet address.
@@ -186,7 +191,14 @@ class PrivacyService:
 
         return {
             "user": user,
-            "can_delete": len(blocking) == 0,
+            "can_delete": False,
+            "deletion_available": False,
+            "components_queried": [],
+            "reason": (
+                "Data deletion is not available on this platform yet, and no "
+                "component was queried for dependencies: the ones listed are "
+                "only those declared to the checker."
+            ),
             "blocking_dependencies": blocking,
             "structural_dependencies": result,
             "checked_at": time.time(),
@@ -395,7 +407,9 @@ class PrivacyService:
     # cannot tell a mention from a declaration; flagged, not worked around.)
     #
     # An exhaustive search found no method anywhere that uploads an arbitrary
-    # blob to Arweave; the only other matches are docstrings and comments.
+    # blob to Arweave. (The other matches are not all prose, as this used to
+    # say: creator_platforms reads an Arweave id out of a Mirror response and
+    # the artist classifier scores the word. Neither uploads anything.)
     # Name-adjacency is exactly the frame this engagement breaks, so this is
     # a removal, not a repoint.
 

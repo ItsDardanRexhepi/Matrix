@@ -171,7 +171,20 @@ class NonceStore:
     # ── Read API (sync) ────────────────────────────────────────────
 
     def __contains__(self, nonce: str) -> bool:
-        return nonce in self._cache
+        """Issued here AND still inside its TTL.
+
+        This was a bare membership test, and expiry happened only when the
+        periodic sweep ran — every ``interval_seconds`` (300 by default), so a
+        nonce stayed acceptable for up to twice NONCE_TTL_SECONDS, and forever
+        if the sweep task died. The gateway's own check reads "must be one we
+        issued and still valid"; the age is now compared at the moment of use,
+        like WalletSessionStore.get compares ``expires_at``. The sweep is still
+        what frees the memory.
+        """
+        issued_at = self._cache.get(nonce)
+        if issued_at is None:
+            return False
+        return (time.time() - float(issued_at)) <= NONCE_TTL_SECONDS
 
     def __len__(self) -> int:
         return len(self._cache)

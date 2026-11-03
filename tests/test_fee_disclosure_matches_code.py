@@ -339,7 +339,9 @@ async def test_a_multi_hop_swap_reports_each_pool_fee_in_its_own_token():
     import types
     dex._web3 = types.SimpleNamespace(available=True, is_placeholder=lambda _v: False)
     trade = await dex.swap("0xtrader", "TOKA", "TOKB", 1_000.0, slippage=5.0)
-    assert trade["status"] == "confirmed", trade
+    # A swap against the in-memory pools moves no tokens, and its record says
+    # so (recorded_unsettled), rather than "confirmed".
+    assert trade["status"] == "recorded_unsettled", trade
     assert "user_fee" not in trade
     assert [f["token"] for f in trade["pool_fees"]] == ["TOKA", "WETH"], trade
     assert trade["pool_fees"] == quote["pool_fees"], (trade, quote)

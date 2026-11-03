@@ -45,8 +45,10 @@ def effective_caller(
 
     THE DEFECT THIS EXISTS TO CLOSE. `file_claim`, `cancel_policy` and
     `renew_coverage` each declared a parameter named `caller`. The dispatcher
-    overrides exactly one name — `caller_identity` — and only for methods that
-    declare it; everything else in `params` is forwarded verbatim into
+    overrides two names — `caller_identity` and `caller_source` — and only for
+    methods that declare `caller_identity` (a method declaring `caller_source`
+    alone would receive the caller's own value for it); everything else in
+    `params` is forwarded verbatim into
     `method(**params)`, and `params` is the attacker-controlled request body
     (service_dispatcher.py says so in terms). So `assert_owner` was handed a
     string the CALLER wrote, and compared it to `policy["holder"]`.

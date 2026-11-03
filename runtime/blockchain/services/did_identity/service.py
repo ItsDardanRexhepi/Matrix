@@ -1,9 +1,11 @@
 """
-DIDService — W3C DID-compliant decentralized identity management.
+DIDService — decentralized identity management.
 
-Creates, resolves, updates, and deactivates Decentralized Identifiers
-following the W3C DID Core specification.  DID Documents include
-verification methods, authentication, and service endpoints.
+Creates, resolves, updates, and deactivates Decentralized Identifiers whose
+documents are shaped after the W3C DID Core data model: verification methods,
+authentication, and service endpoints. Shaped after, not compliant with: the
+verification method's public key is a hash of the DID, not a key anyone holds,
+and the documents live in this process's memory, resolvable nowhere else.
 """
 
 import hashlib
@@ -25,7 +27,8 @@ DID_CONTEXT_SECURITY = "https://w3id.org/security/suites/ed25519-2020/v1"
 
 
 class DIDService:
-    """W3C-compliant Decentralized Identity service.
+    """Decentralized Identity service (see the module docstring for how far
+    the W3C shape goes).
 
     Parameters
     ----------
@@ -80,7 +83,8 @@ class DIDService:
     async def create_did(self, owner: str, method: str = "matrix") -> dict:
         """Create a new DID for *owner*.
 
-        Returns a full W3C DID Document.
+        Returns a DID document in the W3C DID Core shape, whose one
+        verification method carries a placeholder key (a hash of the DID).
 
         The DID format is ``did:<method>:<network>:<address_hash>``.
         """
@@ -365,9 +369,16 @@ class DIDService:
         credential store is "populated externally by DIDService" — the wiring
         this shadow was standing in for and never did.
 
-        So this is a delegation, not a removal: the capability is real, only the
-        wiring was fake. The credential is fetched from the vault and registered
-        with the disclosure module first, which is the step the shadow skipped.
+        So this is a delegation, not a removal: the wiring was fake, and what it
+        now reaches is real within its own limits, which this used to leave out
+        by calling the capability simply "real". The disclosed values are real
+        and the rest are replaced by commitments, but the derived credential
+        carries no issuer proof, the presentation's proof is a digest this
+        process records, and verification means comparing against that record
+        (a presentation made anywhere else does not verify). And ``did`` is the
+        caller's word: nothing compares it with the credential's subject. The
+        credential is fetched from the vault and registered with the disclosure
+        module first, which is the step the shadow skipped.
         """
         credential = self.credential_vault._credentials.get(credential_id)
         if credential is None:

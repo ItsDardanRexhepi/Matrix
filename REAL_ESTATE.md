@@ -131,11 +131,18 @@ in **one transaction, all-or-nothing**:
 
 `POST /api/v1/realestate/escrow/{id}/confirm {tx_hash}` verifies the receipt
 **on-chain** and advances state ONLY if the receipt genuinely settled *this*
-escrow: status success **AND** emitted by our `escrow_contract` **AND** carrying
-a `Settled(escrowId, buyer, …)` log whose indexed id equals this escrow's id.
-An arbitrary successful transaction (e.g. a 1-wei self-transfer whose hash the
-buyer supplies) is rejected as `not_settlement` — it can never fabricate a sale.
-A reverted / unmined / unrelated receipt changes nothing and says so. Only then
+escrow: status success **AND** a `Settled` log emitted by our `escrow_contract`
+whose four topics are the event, this escrow's id, its buyer and the property's
+seller, and whose data word is this escrow's amount, the property's deed token
+and the digest of this escrow's readiness snapshot **AND**, in the same
+receipt, our `deed_contract`'s `Transfer` of that deed token from the seller to
+the buyer. An arbitrary successful transaction (e.g. a 1-wei self-transfer
+whose hash the buyer supplies) is rejected as `not_settlement`, and so is a real
+settlement of other terms under this escrow's id: the contract's escrow id is
+the sha256 of the platform's, which anyone who knows the platform's id can
+compute, so a listing the seller makes under it at 1 wei, or for another of
+their deeds, settles on our contract and is still not this sale. A reverted /
+unmined / unrelated receipt changes nothing and says so. Only then
 does it walk the machine truthfully — `funds_locked → settled →
 offchain_recording_pending` — attest the settlement, and mark the property sold.
 Concurrent duplicate confirms settle exactly once (an in-flight guard plus the

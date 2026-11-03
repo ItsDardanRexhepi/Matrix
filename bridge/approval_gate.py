@@ -13,7 +13,11 @@ This module:
 The approval gate is NON-OPTIONAL. There is no bypass, no auto-approve, and no
 timeout-to-approve: if approval is not received, the component stays in staging.
 Approving is an owner-gated action ("approve_component") — it requires the bound
-owner identity (Apple ID + wallet) AND a fresh OTP. Rejecting is always allowed.
+owner identity (Apple ID + wallet) AND a fresh third factor: a Secure-Enclave
+device assertion (App Attest) when one is supplied, else an SMS OTP. This used to
+say "AND a fresh OTP", which is only the fallback; which factor applies is decided
+by the private owner verification, and this gate forwards both. Rejecting is
+always allowed.
 """
 
 from __future__ import annotations

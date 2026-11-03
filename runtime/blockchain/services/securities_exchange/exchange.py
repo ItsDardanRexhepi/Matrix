@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from decimal import Decimal
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,8 @@ class ExchangeContract:
         Args:
             security_id: Security token identifier.
             side: "buy" or "sell".
-            price: Limit price (must be positive, aligned to tick).
+            price: Limit price (must be positive, and a whole multiple of the
+                tick, ``securities.min_price_increment``).
             amount: Number of tokens.
             trader: Trader wallet address.
 
@@ -70,6 +72,15 @@ class ExchangeContract:
             raise ValueError(f"Side must be one of {_VALID_SIDES}, got '{side}'")
         if price <= 0:
             raise ValueError("Price must be positive")
+        # Aligned to the tick, which the docstring said and nothing checked:
+        # the tick was read, logged and never used. Decimal, on the value as
+        # written, so 0.07 against a 0.01 tick is aligned rather than
+        # 0.07000000000000001 / 0.01 in binary.
+        tick = Decimal(str(self._min_tick))
+        if tick > 0 and tick.is_finite() and Decimal(str(price)) % tick != 0:
+            raise ValueError(
+                f"Price {price} is not a multiple of the tick {self._min_tick} "
+                "(securities.min_price_increment)")
         if amount <= 0:
             raise ValueError("Amount must be positive")
         if amount > self._max_order_size:
@@ -116,8 +127,11 @@ class ExchangeContract:
         DOMAIN 13-B. `SecuritiesExchangeService.sell` validated against the raw
         balance and reserved nothing, so N orders each passed against the same
         unreduced position. This is the reservation the caller needs to subtract.
-        Counts `remaining_amount` (not `original_amount`) so partially-matched
-        orders only reserve what is still outstanding.
+        Counts `original_amount` for every sell order that is neither cancelled
+        nor settled, so a matched order still reserves its units: matching moves
+        nothing while no settlement exists. (This used to say it counted
+        `remaining_amount` so partial matches reserve only what is outstanding,
+        which is the rule the comment below explains was reversed.)
         """
         # 13-B AND 13-C CANCELLED EACH OTHER, AND THE SUITE DID NOT NOTICE.
         # The first version counted only status == "open" and summed

@@ -1,9 +1,17 @@
 """
-CredentialVault — W3C Verifiable Credentials issuance, storage, and verification.
+CredentialVault — credential issuance, storage, and verification.
 
-Issues credentials in the W3C Verifiable Credentials Data Model v2.0
-format, stores them in an in-memory vault keyed by holder DID, and
-supports revocation via a revocation registry.
+Issues credentials shaped after the W3C Verifiable Credentials Data Model,
+stores them in an in-memory vault keyed by holder DID, and supports revocation
+via a revocation set.
+
+Not conformant with the Data Model v2.0, which this used to say it issued in.
+The documents carry the v2 context with the v1.1 date names (issuanceDate,
+expirationDate) and a status type no v2 status method registers, and their
+proof is not a signature: it is a SHA-256 digest of public inputs, which the
+vault records and is the only party able to check. The proof's type says
+that (``PROOF_TYPE``); it used to name Ed25519Signature2020, a signature
+suite, with no key anywhere to sign with.
 """
 
 import hashlib
@@ -30,7 +38,14 @@ CREDENTIAL_TYPES = {
     "LicenseCredential",
 }
 
-PROOF_TYPE = "Ed25519Signature2020"
+#: What a proof here is: a SHA-256 digest the vault records, checkable only by
+#: comparing against that record. Not a signature suite's name, because
+#: nothing signs.
+PROOF_TYPE = "Sha256VaultDigest"
+
+
+def _without_status(credential: dict) -> dict:
+    return {k: v for k, v in credential.items() if k != "credentialStatus"}
 
 
 class CredentialVault:
@@ -85,7 +100,8 @@ class CredentialVault:
         Returns
         -------
         dict
-            W3C Verifiable Credential document.
+            A credential document shaped after the W3C VC data model, whose
+            proof is a digest this vault records (see the module docstring).
         """
         if not issuer_did or not subject_did:
             raise ValueError("Both issuer_did and subject_did are required")
@@ -149,10 +165,15 @@ class CredentialVault:
         return credential
 
     async def verify_credential(self, credential: dict) -> dict:
-        """Verify a Verifiable Credential.
+        """Verify a credential against the one this vault issued.
 
-        Checks structural validity, expiration, revocation status, and
-        proof integrity.
+        Checks structural validity, expiration and revocation status, and that
+        the document presented is the one this vault issued: same proof, same
+        content. The proof is a digest only this vault can check, so a
+        credential this vault did not issue does not verify here. It used to
+        pass ("assume valid if we can't disprove"), and the proof check
+        compared the proof value alone, so a stored credential presented with
+        its claims changed passed too.
         """
         errors: list[str] = []
 
@@ -197,18 +218,25 @@ class CredentialVault:
             revoked = True
             errors.append("Credential has been revoked")
 
-        # Verify proof integrity
+        # Verify proof integrity: the only record that can vouch for this
+        # proof is the vault's own, so the presented document must be the
+        # stored one. credentialStatus is left out of the comparison because
+        # revocation is decided from the revocation set above.
         proof_valid = False
         if cred_id and issuer and subject.get("id") and proof.get("proofValue"):
-            # Re-derive the expected proof from stored credential
             stored = self._credentials.get(cred_id)
-            if stored is not None:
-                proof_valid = stored["proof"]["proofValue"] == proof["proofValue"]
-                if not proof_valid:
-                    errors.append("Proof value does not match")
+            if stored is None:
+                errors.append(
+                    "Credential was not issued by this vault; its proof is a "
+                    "digest only the issuing vault can check")
+            elif stored["proof"]["proofValue"] != proof["proofValue"]:
+                errors.append("Proof value does not match")
+            elif _without_status(stored) != _without_status(credential):
+                errors.append(
+                    "Credential content differs from the credential this "
+                    "vault issued")
             else:
-                # Credential not in our vault — can only do structural checks
-                proof_valid = True  # assume valid if we can't disprove
+                proof_valid = True
 
         is_valid = len(errors) == 0
 

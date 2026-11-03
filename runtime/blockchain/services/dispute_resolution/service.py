@@ -6,12 +6,21 @@ resolution across the Matrix platform.
 
 Coordinates:
   - EvidenceVault   (immutable evidence storage)
-  - JurorPool       (VRF-based juror selection via Component 11)
+  - JurorPool       (random juror selection — from a local seed, not VRF;
+                     see juror_pool.py)
   - SchellingPoint   (commit-reveal voting)
   - Appeals          (multi-tier appeal escalation)
 
-Dispute filing is a TIME-CRITICAL attestation — it is never batched.
-Both parties must stake to participate.
+Filing a dispute creates NO attestation — batched or otherwise. It stores
+the evidence and a record; nothing calls the attestation service. (This
+said filing is "a time-critical attestation — never batched", and the
+record's `time_critical: True` is read by nothing.)
+
+Stakes are NUMBERS, not deposits. The claimant declares a stake, checked
+against a floor; the respondent's is credited by the platform
+(`_base_stake`) when they first take part; no balance is read and no funds
+move, and a later stake_return claim is an entitlement to amounts that were
+never collected. This used to say both parties "must stake".
 """
 
 import logging
@@ -46,8 +55,11 @@ class DisputeResolution:
     Args:
         config: Platform configuration dict.  Relevant keys live under
             ``config["dispute_resolution"]``.
-        oracle_gateway: Optional Component 11 Oracle Gateway instance
-            used by :class:`JurorPool` for Chainlink VRF.
+        oracle_gateway: Optional Component 11 Oracle Gateway instance,
+            passed to :class:`JurorPool`, which asks it for a selection seed.
+            The service registry passes none, so the seed is local and not
+            verifiable (see juror_pool's module docstring). This said the
+            gateway was used "for Chainlink VRF".
     """
 
     def __init__(
@@ -83,7 +95,8 @@ class DisputeResolution:
     ) -> dict:
         """File a new dispute.
 
-        This is a **time-critical** attestation and is NEVER batched.
+        No attestation is created here — see the module docstring. The
+        record's ``time_critical`` flag has no reader.
 
         Args:
             claimant: Address of the party filing the dispute.
@@ -253,7 +266,9 @@ class DisputeResolution:
         return await self.schelling.submit_vote(dispute_id, juror, vote, justification)
 
     # ------------------------------------------------------------------
-    # Reward claims (post-resolution, idempotent, no funds held here)
+    # Reward claims (post-resolution, idempotent, no funds held here).
+    # Idempotent by answering a repeat with the record it already holds — see
+    # claim(); it used to raise, and a raise is not an idempotent endpoint.
     # ------------------------------------------------------------------
 
     async def claim(self, dispute_id: str, claimant: str) -> dict:
@@ -261,13 +276,24 @@ class DisputeResolution:
 
         The platform never holds funds — this records entitlement against the
         resolved outcome (stake return for the winning party, reward share for
-        majority jurors); settlement is executed on-chain separately. A second
-        claim by the same address raises instead of double-recording.
+        majority jurors); settlement is executed on-chain separately.
+
+        IDEMPOTENT, WHICH IS WHAT THE SECTION HEADER ABOVE AND THE GATEWAY
+        ROUTE BOTH SAY IT IS. A second claim by the same address used to raise
+        ValueError, which `ServiceRoutes._call` maps to HTTP 400 — so a client
+        whose first POST timed out AFTER the claim was recorded was refused its
+        own recorded entitlement on the retry, which is the exact failure
+        idempotency exists for. The retry is answered with what was recorded,
+        marked ``replay: True``. The no-double-record guarantee is unchanged:
+        the stored claim is never overwritten and `claimed_at` still says when
+        the first one landed. Nor is it announced twice: the HTTP ripple and
+        the dispatcher read ``replay`` and publish, attest and record nothing
+        for it (`service_dispatcher.is_replay`).
 
         Raises:
             KeyError: If the dispute does not exist.
-            ValueError: If the dispute is unresolved, the address has no
-                entitlement, or it has already claimed.
+            ValueError: If the dispute is unresolved or the address has no
+                entitlement.
         """
         dispute = self._get_dispute_or_raise(dispute_id)
 
@@ -297,7 +323,13 @@ class DisputeResolution:
 
         claims: dict[str, Any] = dispute.setdefault("claims", {})
         if claimant in claims:
-            raise ValueError(f"Address {claimant} already claimed for dispute {dispute_id}")
+            # The retry, answered with the record rather than a 400. Nothing is
+            # written here — the entitlement below is computed fresh from the
+            # outcome each time and deliberately NOT used to overwrite.
+            logger.info(
+                "Dispute claim replayed — id=%s claimant=%s", dispute_id, claimant)
+            return {"dispute_id": dispute_id, "claimant": claimant,
+                    "replay": True, **claims[claimant]}
 
         claims[claimant] = {
             **entitlement,
@@ -353,6 +385,8 @@ class DisputeResolution:
                 exclude={dispute["claimant"], dispute["respondent"]},
             )
             dispute["jurors"] = [j["address"] for j in jurors]
+            # Where the panel's randomness came from, on the record itself.
+            dispute["juror_seed_source"] = self.juror_pool.last_seed_source
 
         # Step 2: tally outcome
         try:
@@ -421,10 +455,13 @@ class DisputeResolution:
             new_evidence=new_evidence,
         )
 
-        # Reset dispute for re-adjudication. Clearing claims is REQUIRED: any
-        # stake_return / juror_reward recorded against the now-overturned round
-        # must not survive into settlement, or both the round-1 and round-2
-        # "winners" would hold a valid entitlement against the same dispute.
+        # Reset dispute for re-adjudication. Claims recorded against the
+        # appealed round are cleared, so only the appeal's result can carry
+        # an entitlement. The conflict this used to cite — round-1 and
+        # round-2 "winners" both holding one — cannot arise today, for a
+        # reason that is its own defect: the vote state is not reset here,
+        # and a TALLIED Schelling round returns its stored outcome, so
+        # re-resolving an appealed dispute yields the round-1 outcome again.
         dispute["status"] = "appealed"
         dispute["appeal_count"] += 1
         dispute["jurors"] = []  # will be re-selected with larger panel

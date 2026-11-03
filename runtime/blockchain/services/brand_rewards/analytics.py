@@ -3,6 +3,13 @@
 Provides aggregate campaign analytics with strict privacy enforcement.
 Individual user data is never exposed. Analytics only available when
 cohort size is at least 100 users.
+
+Both halves are enforced here, and neither was. The floor came from
+``min_cohort_size`` in operator config with no lower bound, so a setting of 1
+answered for a single recipient — whose "total distributed" is their own
+reward. It is a floor now: config may raise it, never lower it below 100.
+And the stats carried ``min_reward``/``max_reward``, each of which IS one
+recipient's exact reward, not an aggregate; they are gone.
 """
 
 from __future__ import annotations
@@ -21,9 +28,20 @@ class CohortAnalytics:
     No individual user data is ever exposed to brands.
     """
 
+    #: The smallest cohort any analytics answer may describe.
+    PRIVACY_FLOOR = 100
+
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         self.config = config or {}
-        self._min_cohort = self.config.get("min_cohort_size", 100)
+        try:
+            configured = int(self.config.get("min_cohort_size", self.PRIVACY_FLOOR))
+        except (TypeError, ValueError):
+            configured = self.PRIVACY_FLOOR
+        if configured < self.PRIVACY_FLOOR:
+            logger.warning(
+                "min_cohort_size=%s is below the privacy floor of %d — using %d",
+                configured, self.PRIVACY_FLOOR, self.PRIVACY_FLOOR)
+        self._min_cohort = max(configured, self.PRIVACY_FLOOR)
         self._campaign_data: dict[str, dict] = {}
         logger.info("CohortAnalytics initialised (min_cohort=%d)", self._min_cohort)
 
@@ -93,8 +111,7 @@ class CohortAnalytics:
             "total_distributed": round(data["total_distributed"], 2),
             "distribution_count": data["distribution_count"],
             "average_reward": round(avg_amount, 2),
-            "min_reward": round(min(amounts), 2),
-            "max_reward": round(max(amounts), 2),
+            # No min/max: each would be one recipient's exact reward.
         }
 
     async def get_cohort_insights(self, campaign_id: str) -> dict:

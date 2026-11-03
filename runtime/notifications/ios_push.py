@@ -28,8 +28,7 @@ class iOSPushChannel(Channel):
 
     @property
     def available(self) -> bool:
-        cfg = self._channel_config
-        return all(cfg.get(k) for k in ("auth_key_p8", "key_id", "team_id", "bundle_id"))
+        return self._filled("auth_key_p8", "key_id", "team_id", "bundle_id")
 
     async def send(self, message: str, *, level: str = "info", metadata: dict | None = None) -> dict:
         if not self.available:

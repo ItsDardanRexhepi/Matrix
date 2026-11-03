@@ -2,8 +2,11 @@
 ERC3643Compliance — ERC-3643 compliant transfer restrictions and investor
 whitelisting for the tokenized securities exchange.
 
-Handles accredited investor verification, jurisdiction checks, and
-holding period enforcement.
+Handles accredited investor verification and jurisdiction checks. It also
+holds a holding-period check, which fires only for a holding whose acquisition
+was recorded — and nothing records one today: the one caller of
+``record_acquisition`` sits after the purchase path's refusal (13-A), so no
+transfer is held back by it, whatever ``default_holding_period`` says.
 """
 
 from __future__ import annotations
@@ -27,7 +30,9 @@ class ERC3643Compliance:
 
     Config keys (under ``config["securities"]``):
         restricted_jurisdictions (list[str]): ISO codes to block.
-        default_holding_period (int): Seconds tokens must be held.
+        default_holding_period (int): Seconds a recorded acquisition must be
+            held before its holder may transfer. Inert until an acquisition
+            is recorded, which no path does today (see the module docstring).
         require_accreditation (bool): Require accredited investor status (default True).
     """
 

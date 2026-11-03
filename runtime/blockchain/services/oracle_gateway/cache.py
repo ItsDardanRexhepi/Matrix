@@ -3,9 +3,12 @@ from __future__ import annotations
 """
 TTL-based cache for oracle responses.
 
-Each oracle type has a configurable TTL. VRF results are never cached
-(TTL=0) since randomness must be fresh. Price feeds cache briefly to
-avoid hammering RPC nodes on repeated reads within the same block.
+Each oracle type has a configurable TTL — except VRF, whose results are
+never cached (TTL=0) since randomness must be fresh. That exception is
+enforced here: a ``cache_ttls`` config naming ``random_vrf`` used to override
+it, and the same random words were then served again as ``cached``. Price
+feeds cache briefly to avoid hammering RPC nodes on repeated reads within the
+same block.
 """
 
 import asyncio
@@ -40,7 +43,13 @@ class _CacheEntry:
 
 
 class OracleCache:
-    """Async-safe, TTL-based in-memory cache for oracle data.
+    """TTL-based in-memory cache for oracle data; each operation is locked.
+
+    Locked per OPERATION, which is not the same as safe for a miss-then-fill:
+    two requests that both miss would both fetch, and the later-finishing one
+    would overwrite an earlier, newer value with a fresh TTL. The gateway
+    closes that by fetching one miss per key at a time (OracleGateway's
+    per-key lock). This said "async-safe" of the cache alone.
 
     Parameters
     ----------
@@ -58,6 +67,8 @@ class OracleCache:
         max_entries: int = 10_000,
     ) -> None:
         self._ttls: dict[str, int] = {**DEFAULT_TTLS, **(ttls or {})}
+        # Randomness is never cached, whatever the config says.
+        self._ttls["random_vrf"] = 0
         self._max_entries = max_entries
         self._store: dict[str, _CacheEntry] = {}
         self._lock = None  # lazy: created on first async use (Py3.9 has no loop in __init__)

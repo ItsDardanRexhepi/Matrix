@@ -52,12 +52,13 @@ an actuarial model and this module does not claim to price anything. Their
 basis is stated per entry so a reviewer can disagree with a specific number
 rather than with an unexplained constant.
 
-WHAT REMAINS OPEN, STATED RATHER THAN QUIETLY LEFT. Within a band the buyer
-still chooses, and `FeeEngine.calculate_premium` never reads `metric`,
-`comparator` or `threshold` — so a policy triggering at 35C and one triggering
-at 55C cost exactly the same premium. This module bounds the abuse; it does not
-price the residual. That residual is D18-FEE-C2 and it is registered, not
-closed. Bounding an unbounded input to a band is a real control; calling it a
+WHAT WAS OPEN, AND IS CLOSED. Within a band the buyer still chooses, and
+this said `FeeEngine.calculate_premium` never reads `metric`, `comparator` or
+`threshold`, so a 35C and a 55C trigger cost the same premium. It reads them
+now: the fee engine passes the conditions to `trigger_ease` below, and the
+severity multiplier it returns prices an easy trigger above a hard one
+(D18-FEE-C2, reversed in fee_engine.py). This module bounds the abuse; the
+fee engine prices what is left inside the bound. Bounding an unbounded input to a band is a real control; calling it a
 pricing fix would be the §AN.1 error — a clamp that turns unbounded abuse into
 a uniform one, described as a safety rail.
 """

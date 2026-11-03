@@ -15,7 +15,7 @@ class DiscordChannel(Channel):
     @property
     def available(self) -> bool:
         url = str(self._channel_config.get("webhook_url", "") or "")
-        return bool(url) and url.startswith("https://")
+        return (self._filled("webhook_url") and url.startswith("https://"))
 
     async def send(self, message: str, *, level: str = "info", metadata: dict | None = None) -> dict:
         if not self.available:

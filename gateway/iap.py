@@ -249,6 +249,11 @@ def verify_signed_payload(jws: str, *, config: dict,
         header = json.loads(_b64url_decode(parts[0]))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise IAPError("malformed JWS header") from exc
+    # A header segment that is valid JSON but not an OBJECT (an array, a
+    # number) used to reach `header.get` and raise AttributeError, which the
+    # route does not catch: a 500 where every other malformed JWS is a 401.
+    if not isinstance(header, dict):
+        raise IAPError("malformed JWS header")
 
     # Algorithm pinned BEFORE any cryptography: only ES256, never a downgrade.
     if header.get("alg") != "ES256":

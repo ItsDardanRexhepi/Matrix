@@ -168,9 +168,22 @@ class LoanManager:
                 },
             })
 
+        # The prices are checked BEFORE the ratio is formed. The ratio line
+        # used to answer 0 whenever `borrow_value > 0` was False — a NaN or
+        # non-positive borrow price — which is the substitution the comment
+        # below forbids: a finite, fabricated ratio that only the configured
+        # minimum happened to catch.
+        for _label, _price in (("collateral", collateral_price),
+                               ("borrow", borrow_price)):
+            if not math.isfinite(_price) or _price <= 0:
+                raise ValueError(
+                    f"{_label.capitalize()} price must be a positive finite "
+                    f"number, got {_price!r}; the collateral ratio cannot be "
+                    "computed from it, so the loan's collateralisation is "
+                    "unknown. Refusing to issue it.")
         collateral_value = collateral_amount * collateral_price
         borrow_value = borrow_amount * borrow_price
-        collateral_ratio = collateral_value / borrow_value if borrow_value > 0 else 0
+        collateral_ratio = collateral_value / borrow_value
 
         # DOMAIN 16-A, DEFENCE IN DEPTH. Guarding the inputs is not sufficient:
         # the ratio is a QUOTIENT OF PRICES, and a non-finite price from the
@@ -420,10 +433,15 @@ class LoanManager:
                     f"{_label.capitalize()} price must be positive, got {_price}"
                 )
 
-        self._accrue_interest(loan)
-
+        # DECIDE ON A VIEW, COMMIT ONLY WHAT IS DECIDED. Eligibility used to be
+        # computed after `_accrue_interest(loan)` had written the stored
+        # record, so a REFUSED call still changed it — and accrual compounds
+        # on principal per call, so the debt a loan ends up owing depended on
+        # how many times someone asked. The accrued figure is computed without
+        # writing, and written only once the liquidation is due.
+        accrued_now = self._interest_due(loan)
         collateral_value = loan["collateral_amount"] * collateral_price
-        total_owed = loan["borrow_amount"] + loan["accrued_interest"]
+        total_owed = loan["borrow_amount"] + accrued_now
         borrow_value = total_owed * borrow_price
         current_ratio = collateral_value / borrow_value if borrow_value > 0 else float("inf")
 
@@ -432,6 +450,7 @@ class LoanManager:
                 f"Loan ratio {current_ratio:.2f} is above liquidation threshold "
                 f"{self._liquidation_threshold:.2f}. Not eligible."
             )
+        self._accrue_interest(loan)
 
         # Calculate liquidation
         penalty = total_owed * self._liquidation_penalty
@@ -448,8 +467,10 @@ class LoanManager:
         # position; the borrower has the asset and owes nothing on the books.
         #
         # The state must record that a liquidation is DUE, and must not pretend
-        # one occurred. Debt and collateral are left exactly as they are,
-        # because nothing about them changed.
+        # one occurred. Principal and collateral are left exactly as they are,
+        # because nothing about them changed; the interest accrued to this
+        # moment is recorded, as any accrual is — and only here, once the
+        # liquidation is decided (a refused call writes nothing).
         loan["status"] = LoanStatus.ACTIVE
         loan["liquidation_due"] = True
         loan["liquidation_due_at"] = int(time.time())
@@ -536,9 +557,10 @@ class LoanManager:
                 "reason": f"Loan is {loan['status']}",
             }
 
-        self._accrue_interest(loan)
+        # A CHECK READS. This accrued into the stored loan, so asking changed
+        # the debt (accrual compounds per call).
         collateral_value = loan["collateral_amount"] * collateral_price
-        total_owed = (loan["borrow_amount"] + loan["accrued_interest"]) * borrow_price
+        total_owed = (loan["borrow_amount"] + self._interest_due(loan)) * borrow_price
         current_ratio = collateral_value / total_owed if total_owed > 0 else float("inf")
 
         return {
@@ -577,8 +599,13 @@ class LoanManager:
         harder version, because every reader looks correct on its own.
 
         An empty pool with borrowings against it is fully drawn, so utilisation
-        is 1.0 — not zero, and not a made-up denominator. The rate is unchanged
-        by this fix on every input; only the reported number becomes true.
+        is 1.0 — not zero, and not a made-up denominator. The rate is NOT
+        unchanged on every input, which this used to say: for a token with no
+        pool entry and 0 < borrowed < 1 the old expression gave a utilisation
+        of `borrowed` (dividing by a made-up 1.0) and this gives 1.0, which can
+        sit on the other side of the kink; and an entry of exactly 0.0 used to
+        divide by zero. On every other input the rate is unchanged, and the
+        reported number is now the one the rate was computed from.
         """
         total = self._pool_total.get(token, 0.0)
         borrowed = self._pool_borrowed.get(token, 0.0)
@@ -607,21 +634,32 @@ class LoanManager:
             )
         return rate
 
+    def _interest_due(self, loan: dict[str, Any], now: int | None = None) -> float:
+        """The accrued interest as of *now*, WITHOUT writing it."""
+        now = int(time.time()) if now is None else now
+        elapsed = now - loan["last_interest_update"]
+        if elapsed <= 0:
+            return loan["accrued_interest"]
+        # Continuous compounding: P * e^(r*t) - P
+        years = elapsed / (365.25 * 24 * 3600)
+        return loan["accrued_interest"] + loan["borrow_amount"] * (
+            math.exp(loan["interest_rate"] * years) - 1)
+
     def _accrue_interest(self, loan: dict[str, Any]) -> None:
         """Accrue interest on a loan based on elapsed time."""
         now = int(time.time())
-        elapsed = now - loan["last_interest_update"]
-        if elapsed <= 0:
+        if now - loan["last_interest_update"] <= 0:
             return
-
-        # Continuous compounding: P * e^(r*t) - P
-        annual_rate = loan["interest_rate"]
-        years = elapsed / (365.25 * 24 * 3600)
-        principal = loan["borrow_amount"]
-        new_interest = principal * (math.exp(annual_rate * years) - 1)
-
-        loan["accrued_interest"] += new_interest
+        loan["accrued_interest"] = self._interest_due(loan, now)
         loan["last_interest_update"] = now
+
+    def outstanding_principal(self, borrower: str, token: str) -> float:
+        """The principal still owed by *borrower* in *token*, across EVERY
+        active loan — what the collateral ledger's borrow position has to be."""
+        return sum(
+            float(loan["borrow_amount"]) for loan in self._loans.values()
+            if loan["borrower"] == borrower and loan["borrow_token"] == token
+            and loan["status"] == LoanStatus.ACTIVE)
 
     async def get_rates(self, token: str) -> dict[str, Any]:
         """Get current interest rates for a token.

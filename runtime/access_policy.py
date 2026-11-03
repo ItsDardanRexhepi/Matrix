@@ -183,9 +183,9 @@ _COMPOSED_MESSAGE_STATEMENT = (
     "receiving chain reads the platform's wallet as the message's sender. "
     "Nothing was signed.")
 _KYC_STATEMENT = (
-    "The platform's key attests no KYC credential on a request: the "
-    "verification it would attest arrives in the request, and the platform "
-    "holds no provider result of its own to check it against. Nothing was signed.")
+    "The platform's key attests no KYC credential on a request: the provider's "
+    "review names an applicant, the credential would name a wallet, and nothing "
+    "the platform holds ties the two together. Nothing was signed.")
 # A recovery or a session key is a call on an account-abstraction module, and
 # the module decides by who calls it. Sent from the platform's wallet, the
 # platform's own standing with the module (as a guardian, if it lets the
@@ -420,6 +420,9 @@ HANDS_THE_CALL_TO: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {
     ("privacy", "decentralized_store"): (("storage", "store_filecoin"),),
     ("privacy", "pin_to_ipfs"): (("storage", "store_filecoin"),),
     ("privacy", "submit_compute_job"): (("compute", "submit_compute_job"),),
+    # KYCService.issue_kyc_credential reads the provider's review for the
+    # applicant it is given through check_aml_risk before it refuses.
+    ("kyc", "issue_kyc_credential"): (("kyc", "check_aml_risk"),),
 }
 
 

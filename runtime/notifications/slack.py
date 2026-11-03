@@ -11,7 +11,8 @@ class SlackChannel(Channel):
     @property
     def available(self) -> bool:
         url = str(self._channel_config.get("webhook_url", "") or "")
-        return bool(url) and url.startswith("https://hooks.slack.com/")
+        return (self._filled("webhook_url")
+                and url.startswith("https://hooks.slack.com/"))
 
     async def send(self, message: str, *, level: str = "info", metadata: dict | None = None) -> dict:
         if not self.available:

@@ -39,7 +39,9 @@ logger = logging.getLogger(__name__)
 # params.from, all written by the caller; on /chat, through the
 # `platform_action` tool, it is the chat body's `wallet` field, session or not
 # (runtime/react_loop.py). One constant so the service side and the injection
-# side cannot drift apart.
+# side cannot drift apart — which holds because BOTH read it: the signature
+# check below and the injection in `execute` (it used to write the literal
+# "caller_identity" there, so renaming the constant would have split them).
 CALLER_IDENTITY_PARAM = "caller_identity"
 
 
@@ -71,10 +73,12 @@ def _method_accepts_caller_identity(method: Any) -> bool:
     unreadable signature degrades to today's behaviour instead of raising.
 
     Caching is keyed on the underlying FUNCTION, not on the bound method:
-    `getattr(instance, name)` mints a fresh bound method on every dispatch, so
-    caching those would both miss every time and pin every service instance
-    the cache ever saw. `__func__` is the module-level function object, which
-    is stable and already immortal.
+    `getattr(instance, name)` mints a fresh bound method on every dispatch,
+    and although bound methods hash equal when their instance and function
+    match (so the registry's cached instances WOULD hit from the second
+    dispatch on — this used to say they would "miss every time"), a cache
+    keyed on them pins every service instance it ever saw. `__func__` is the
+    module-level function object, which is stable and already immortal.
     """
     target = getattr(method, "__func__", method)
     try:
@@ -410,8 +414,12 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     #      16-C replaced `CollateralManager.record_repayment(user, token,
     #      amount)` — a SUBTRACT fed the wrong quantity — with
     #      `set_borrow_position(user, token, principal)`, and service.py:196 now
-    #      passes `result["remaining_principal"]`, the loan's own figure, so the
-    #      two ledgers cannot disagree. `record_repayment` no longer exists;
+    #      passed `result["remaining_principal"]` — one loan's figure, which
+    #      made the ledgers disagree as soon as a borrower held two loans in a
+    #      token (record_borrow adds each loan; the assignment erased the
+    #      other). It now passes the principal outstanding across the
+    #      borrower's active loans in that token, which is what makes the two
+    #      ledgers agree. `record_repayment` no longer exists;
     #      tests/test_defi_borrow_ledger_matches_the_loan.py pins its absence.
     #
     #      16-U. THE STALE CONDITION IS CORRECTED IN PLACE RATHER THAN DELETED,
@@ -544,7 +552,8 @@ _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
     # must never read as a completed screen.
     "provider_unsupported",
     # 23-A. `issue_kyc_credential` refuses to attest that a person passed KYC
-    # without a screened verification result. Classified explicitly — this test
+    # without a screened GREEN review it fetched from the provider itself.
+    # Classified explicitly — this test
     # exists precisely to stop a new string acquiring a meaning by accident,
     # and a credential refusal must never read as a credential.
     "not_verified",
@@ -847,6 +856,20 @@ def _record_verdict(result: Any) -> str:
         if _normalise_status(result.get("status")) in _BROADCAST_STATUSES:
             return RECORD_BROADCAST
     return RECORD_SETTLED
+
+
+def is_replay(result: Any) -> bool:
+    """True when *result* answers a retry with a record made earlier.
+
+    An idempotent method answers its second call with what the first one
+    recorded, marked ``replay: True`` (``DisputeResolution.claim`` does). That
+    answer is true and it is not a new event: nothing was done this time. So
+    it is not attested, not published to the feed and not rippled, on either
+    surface, and it is not recorded as a decline. The dispute claim became
+    idempotent without this, and the HTTP ripple announced one recorded claim
+    as two.
+    """
+    return isinstance(result, dict) and result.get("replay") is True
 
 
 # ---------------------------------------------------------------------------
@@ -1181,8 +1204,10 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     # was recorded depended on which name the caller happened to use.
     "tokenize_asset": "rwa_tokenized",
     "rwa_fractional_buy": "rwa_purchased",
-    "did_create": "did_created",
-    "credential_issue": "credential_issued",
+    # No event for a decentralized identifier made or a credential issued, nor
+    # for the privacy service's store and pin: the public feed refuses each of
+    # them (social/visibility.py), so naming an event for one would say that
+    # it is announced.
     "soulbound_mint": "soulbound_minted",
     "market_create": "prediction_market_created",
     "market_bet": "prediction_bet_placed",
@@ -1196,8 +1221,6 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     # `ai_agent_register` but published nothing, so whether this state change
     # was recorded depended on which name the caller happened to use.
     "register_agent": "ai_agent_registered",
-    "decentralized_store": "file_stored",
-    "ipfs_pin": "ipfs_content_pinned",
     "game_asset_mint": "game_asset_minted",
     # NEW-10: `mint_game_asset` routes to the SAME service method as
     # `game_asset_mint` but published nothing, so whether this state change
@@ -1699,12 +1722,13 @@ class ServiceDispatcher:
             #
             # WHY SIGNATURE INJECTION AND NOT A ContextVar. A ContextVar (the
             # shape `gateway/security_gate.py` uses for the security context)
-            # would be less code, but it is bound at ONE of the four entry
-            # points that reach this dispatcher — the other three
-            # (capabilities/registry.py, agents/handoff.py, tools/dispatcher.py)
-            # never bind it, so a service reading it would silently see the
-            # PREVIOUS request's identity or nothing, with no signature to say
-            # so. Declaring the parameter makes the dependency visible in the
+            # would be less code, but it is bound by the gateway's security
+            # middleware for HTTP requests — which covers the capabilities
+            # invoke route and the bridge — and by nothing on the agent paths
+            # (agents/handoff.py, tools/dispatcher.py), where a service reading
+            # it would see whatever the task inherited or nothing, with no
+            # signature to say so. (This said three of the four entry points
+            # never bind it; the capabilities route is bound, one frame up.) Declaring the parameter makes the dependency visible in the
             # service's own API, works identically from all four entry points,
             # and is checkable by `inspect`.
             #
@@ -1727,7 +1751,7 @@ class ServiceDispatcher:
             # (tests/test_bound_identity_is_not_called_authenticated.py drives
             # it through the gateway).
             if _method_accepts_caller_identity(method):
-                params = {**params, "caller_identity": caller_identity or "",
+                params = {**params, CALLER_IDENTITY_PARAM: caller_identity or "",
                           "caller_source": _actor_source}
 
             # The caller's arguments either bind to the method or they do not,
@@ -1856,7 +1880,11 @@ class ServiceDispatcher:
             # for three answers — `_record_verdict` holds the argument.
             if action in _STATE_MODIFYING_ACTIONS:
                 _verdict = _record_verdict(result)
-                _happened = _verdict == RECORD_SETTLED
+                # A REPLAY HAPPENED ONCE, THE FIRST TIME. The answer to a
+                # retried idempotent call is the earlier record, and recording
+                # or announcing it again would say it happened twice.
+                _replayed = is_replay(result)
+                _happened = _verdict == RECORD_SETTLED and not _replayed
                 _shadow_the_verdict(action, target_service, _actor, params, result, _verdict)
                 # Mode on, the run written: the outbox delivers this run's
                 # attestation and feed entry (deep copies), not this method.
@@ -1866,7 +1894,14 @@ class ServiceDispatcher:
                     self._attestation_of, action, target_service, params, actor=_actor,
                     actor_source=_actor_source, actor_claimed=_claimed_actor)
 
-                if _happened and _owned:
+                if _replayed:
+                    logger.info(
+                        "ACTION REPLAYED (not attested again, not published "
+                        "again): action=%s service=%s actor=%s — the result "
+                        "is the record of an earlier call",
+                        action, target_service, _actor or "<unknown>",
+                    )
+                elif _happened and _owned:
                     _durable.hold(
                         _run, "attest", functools.partial(self._queued_attestation, _attestation),
                         _durable.deliver_attestation,
@@ -1940,6 +1975,17 @@ class ServiceDispatcher:
                     }
                     if _claimed_actor:
                         _detail["actor_claimed"] = _claimed_actor
+                    # The service's answer can say what the request did not:
+                    # a share it stored as "followers" when the request
+                    # named no visibility. The ripple reads the answer with
+                    # the request (`is_public(kwargs, result)`); the feed's
+                    # door reads only this entry, so the entry carries the
+                    # answer's verdict in the reading's own word, and the
+                    # door declines it as the ripple does. Only a declined
+                    # entry carries the mark, so no stored row ever does.
+                    from runtime.blockchain.services.social.visibility import is_public
+                    if not is_public(result):
+                        _detail["private"] = True
                     _entry = dict(
                         action=action,
                         actor=_actor,
@@ -2067,8 +2113,15 @@ class ServiceDispatcher:
         # it — the same principle the attestation path is built on, applied to
         # the path that runs when the attestation path declines.
         _status = result.get("status") if isinstance(result, dict) else None
-        # 17-D. A refusal names WHO was refused. "The system declined" is only
-        # half an audit record if it cannot say who it declined.
+        # 17-D. A refusal names WHO was refused, when there is someone to name.
+        # "The system declined" is only half an audit record if it cannot say
+        # who it declined. Not every refusal can: an action whose params carry
+        # no wallet/address, reached through an entry point with no identity,
+        # is logged as `actor=<unknown>` — this used to read as if every
+        # refusal identified its party. And the name is the one the entry point
+        # resolved, which is not always authenticated (see
+        # CALLER_IDENTITY_PARAM); the attestation carries that source, this
+        # line does not, so that it stays identical to the HTTP surface's.
         #
         # And it names, separately, who the REQUEST said was acting when that
         # disagrees with the identity the entry point resolved. Reading the

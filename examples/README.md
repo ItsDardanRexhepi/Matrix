@@ -55,11 +55,11 @@ will print a warning and continue with the remaining steps.
 | 01 | `01_contract_conversion.py` | Pseudocode -> Solidity -> audit (runs with `conversion.auto_deploy` off; deploying it is yours to do) | 1 |
 | 02 | `02_defi_loan.py` | Collateralised lending: create a loan, read it back, repay it | 2 |
 | 03 | `03_nft_with_royalties.py` | ERC-721 collection with an EIP-2981 royalty: create, mint, list, sell | 3 |
-| 04 | `04_parametric_insurance.py` | Crop insurance: policy, weather oracle reading, claim judged on the service's own oracle data | 13, 11 |
+| 04 | `04_parametric_insurance.py` | Crop insurance: policy, weather oracle reading, claim judged on the service's own oracle data and recorded against the reserve, not paid out | 13, 11 |
 | 05 | `05_marketplace_flow.py` | List, search, view and buy; the sale is recorded with its fee split (no escrow, nothing moves on chain) | 24 |
 | 06 | `06_eas_attestation_chain.py` | Attest sample records (where `blockchain.eas_schema` is a well-formed bytes32 UID, queued unless time-critical); batch attest; verify | 8 |
 | 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording (in memory, nothing moves) | 1, NeoSafe |
-| 08 | `08_oracle_routing.py` | Price feeds, a weather reading and a VRF request through the oracle gateway | 11 |
+| 08 | `08_oracle_routing.py` | Price feeds, a weather reading and a VRF request through the oracle gateway (the VRF request is refused: none is sent) | 11 |
 | 09 | `09_full_user_journey.py` | Complete journey: DID -> DAO -> tokenize -> NFT -> govern -> fund -> stake | 3-6, 16, 19, 22 |
 
 Every step an example dispatches prints what the service answered, and it counts as done only when the dispatcher reports that it happened: the envelope's `call_outcome` is `"success"`. The envelope's own `"status": "ok"` says only that the dispatch ran, and it says that when the service answered `not_deployed`. A step whose outcome is `"unknown"` is reported as not confirmed, with what the service said. A step that needs an id an earlier step did not produce is skipped, and each example ends with how many of its steps happened. `examples/_steps.py` holds that check.
@@ -114,7 +114,9 @@ Every example works on mainnet with zero code changes — just update your confi
 
 When an action on the dispatcher's state-modifying list settles, `ServiceDispatcher.execute()` hands the attestation service a record of it. The record holds the action, the service, the actor the request was bound to, a hash of the parameters and a timestamp; it carries no amounts, addresses or transaction hashes. The attestation service resolves its schema first: when `blockchain.eas_schema` is not a well-formed bytes32 UID, as in the shipped example config, it refuses the record, the dispatcher logs the refusal, and nothing is queued. When it is one, the record is not written on-chain straight away: it joins an in-memory batch that is submitted when 50 records have queued in the same process. There is no timer, so a batch that has not filled is lost when the process exits. A refusal, and a transaction that was broadcast and not yet confirmed, are logged, not attested. Contract deployment is not among the actions: `/api/v1/contracts/deploy` answers `501`.
 
-What reaches the chain is narrower than that record: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`).
+A method that wrote a record and moved nothing (`recorded_unsettled`) is not attested as done either — a marketplace purchase is one — and a capability called as an agent tool directly does not pass through the dispatcher.
+
+What reaches the chain is narrower than that record: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`), signed by the platform key, and it is revocable.
 
 See `examples/06_eas_attestation_chain.py` for the attestation flow.
 

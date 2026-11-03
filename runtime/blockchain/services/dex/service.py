@@ -25,7 +25,11 @@ from typing import Any
 
 from runtime.blockchain.services.dex.pools import LiquidityPoolManager
 from runtime.blockchain.services.dex.router import SwapRouter, _hop_fee
-from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+from runtime.blockchain.web3_manager import (
+    Web3Manager,
+    not_deployed_response,
+    recorded_unsettled_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,12 @@ logger = logging.getLogger(__name__)
 class DEXService:
     """Native DEX service. The platform takes no swap fee; the pools' fee tier
     is deducted from the input (see the module docstring).
+
+    A swap here moves no tokens. It is computed against this service's
+    in-memory pools and recorded; the configured router contract is a gate,
+    not something this method calls. The record says so
+    (``recorded_unsettled``) — it used to say ``confirmed``, which the
+    dispatcher attested and the public feed announced as a swap.
 
     Config keys (under ``config["dex"]``):
         platform_wallet (str): Read for configuration compatibility. A swap here
@@ -86,8 +96,11 @@ class DEXService:
         amount_in: float,
         slippage: float = 0.5,
     ) -> dict:
-        """Execute a token swap. The platform takes no fee; each pool hop
-        deducts its fee tier from the input.
+        """Record a token swap against the in-memory pools.
+
+        The platform takes no fee; each pool hop deducts its fee tier from the
+        input. No tokens move and no transaction is sent — see the class
+        docstring.
 
         Args:
             trader: Trader wallet address.
@@ -163,7 +176,7 @@ class DEXService:
                 f"got {actual_output:.6f}"
             )
 
-        trade = {
+        trade = recorded_unsettled_response("dex", "swap", {
             "trade_id": str(uuid.uuid4()),
             "trader": trader,
             "token_in": token_in,
@@ -180,12 +193,15 @@ class DEXService:
             "pool_fees": pool_fees,
             "platform_fee": 0.0,
             "executed_at": int(time.time()),
-            "status": "confirmed",
-        }
+        }, disclosure=(
+            "Computed against this service's in-memory pools and recorded. No "
+            "tokens moved and no transaction was sent. Each hop's pool deducted "
+            "its fee tier (pool_fees); the platform took none."
+        ))
 
         self._trades.append(trade)
         logger.info(
-            "Swap executed: trader=%s %s %.6f %s -> %.6f %s (pool fees %s, platform fee 0)",
+            "Swap recorded (no tokens moved): trader=%s %s %.6f %s -> %.6f %s (pool fees %s, platform fee 0)",
             trader, token_in, amount_in, token_out, actual_output, token_out,
             ", ".join(f"{f['amount']:.6f} {f['token']}" for f in pool_fees),
         )

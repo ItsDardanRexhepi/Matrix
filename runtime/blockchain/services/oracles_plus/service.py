@@ -61,7 +61,9 @@ REDSTONE_API_BASE = "https://oracle-gateway-1.a.redstone.finance"
 # AutomationRegistrar interface. UNVERIFIED for the operator's specific
 # registrar version — the registrar ABI varies by Automation version (2.0/2.1).
 
-# Minimal Pyth IPyth ABI — only the read functions this service calls.
+# Minimal Pyth IPyth ABI — read functions only. This service calls
+# getPriceUnsafe; getUpdateFee is declared and not called (this said "only the
+# read functions this service calls").
 # Verified against the public IPyth interface (pyth-sdk-solidity).
 _PYTH_ABI = [
     {

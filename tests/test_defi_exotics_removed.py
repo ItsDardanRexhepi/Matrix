@@ -323,8 +323,13 @@ def test_the_morpheus_risk_classifications_are_retained():
         assert name in _IRREVERSIBLE_ACTIONS, (
             f"{name} lost its irreversible-action classification"
         )
-    for name in ("flash_loan", "yield_optimize", "perp_trade", "options_trade"):
-        assert _ACTION_CATEGORY_MAP.get(name) == "defi"
+    # EVERY entry of the guarded block, not four of nine: the comment in
+    # morpheus_triggers.py says this test stops a cleanup from dropping the
+    # guard, and it pinned only four, so the other five could go unnoticed.
+    for name in ("flash_loan", "yield_optimize", "liquidity_provide",
+                 "perp_trade", "options_trade", "vault_deposit",
+                 "leverage_position", "collateral_manage", "synthetic_asset"):
+        assert _ACTION_CATEGORY_MAP.get(name) == "defi", name
 
 
 def test_the_governance_flash_loan_detector_is_untouched():

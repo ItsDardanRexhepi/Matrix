@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 """
-Outcome Learning Schema — canonical schema for decision outcome records.
-Append-only JSONL storage with linkers and replay validation.
+Outcome Learning Schema — canonical schema for decision outcome records,
+with linkers and replay validation. Storage is IN MEMORY: nothing here writes
+a file, and it is not append-only (links can be rolled back). This used to
+say "Append-only JSONL storage", and the module does no I/O at all.
 """
 
 import copy

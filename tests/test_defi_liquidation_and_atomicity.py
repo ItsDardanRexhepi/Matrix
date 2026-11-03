@@ -732,7 +732,10 @@ def test_the_lifting_condition_does_not_cite_a_defect_that_was_fixed():
     # the premise: NEW-62's mechanism really is gone
     assert "def record_repayment" not in collateral
     assert "set_borrow_position" in defi_service
-    assert 'result["remaining_principal"]' in defi_service
+    # The position is set from the LOANS, not decremented by a payment — and
+    # from all of the borrower's active loans in the token, not one loan's
+    # remainder (tests/test_finance_nft_oracle_claims_hold.py).
+    assert "outstanding_principal(borrower, borrow_token)" in defi_service
 
     # the comment must say so, and must still say clause 1 is open
     block = dispatcher[dispatcher.index("LIFTING CONDITION"):][:2600]

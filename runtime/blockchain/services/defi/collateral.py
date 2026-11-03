@@ -261,6 +261,10 @@ class CollateralManager:
             raise ValueError("Borrow position must be a finite number")
         self._borrows.setdefault(user, {})[token] = max(0.0, float(principal))
 
+    def accepts(self, token: str) -> bool:
+        """Is *token* in the collateral table ``deposit`` accepts?"""
+        return token in self._collateral_factors
+
     # ── Internal helpers ──────────────────────────────────────────────
 
     async def _compute_health_factor(
