@@ -1,8 +1,19 @@
 """
 DEXService — native decentralized exchange for the Matrix platform.
 
-Uniswap wrapper with native constant-product AMM fallback.
-ZERO FEES to users (platform absorbs gas costs).
+Swaps route through the service's own in-memory constant-product pools
+(LiquidityPoolManager, SwapRouter). There is no Uniswap integration:
+``dex.uniswap_enabled`` is read and nothing uses it. ``swap`` answers
+not_deployed unless a chain and ``dex.router_contract`` are configured, and
+past that check it still executes against the in-memory pools and signs no
+transaction.
+
+Fees: the platform takes no swap fee, but every pool hop deducts its fee tier
+from that hop's input (LiquidityPoolManager, default 0.3%) and the fee stays in
+the pool. Quotes and trades report it per hop as ``pool_fees`` — one entry per
+pool, with the pool id, the token the fee is in (that hop's input token) and the
+amount — and the platform's share as ``platform_fee`` (always 0.0). On a routed
+swap the hops' fees are in different tokens, so there is no single total.
 """
 
 from __future__ import annotations
@@ -13,7 +24,7 @@ import uuid
 from typing import Any
 
 from runtime.blockchain.services.dex.pools import LiquidityPoolManager
-from runtime.blockchain.services.dex.router import SwapRouter
+from runtime.blockchain.services.dex.router import SwapRouter, _hop_fee
 from runtime.blockchain.web3_manager import (
     Web3Manager,
     not_deployed_response,
@@ -24,22 +35,19 @@ logger = logging.getLogger(__name__)
 
 
 class DEXService:
-    """Native DEX service with no platform fee.
+    """Native DEX service. The platform takes no swap fee; the pools' fee tier
+    is deducted from the input (see the module docstring).
 
-    The platform takes no fee from a swap. The POOL does: each hop deducts
-    its liquidity-provider fee from the amount going in (0.3% by default),
-    and the trade records it. This used to say "zero user fees ... Users pay
-    nothing for swaps" while recording ``user_fee: 0.0`` beside a smaller
-    output.
-
-    And a swap here moves no tokens. It is computed against this service's
+    A swap here moves no tokens. It is computed against this service's
     in-memory pools and recorded; the configured router contract is a gate,
     not something this method calls. The record says so
     (``recorded_unsettled``) — it used to say ``confirmed``, which the
     dispatcher attested and the public feed announced as a swap.
 
     Config keys (under ``config["dex"]``):
-        platform_wallet (str): Wallet that absorbs gas costs.
+        platform_wallet (str): Read for configuration compatibility. A swap here
+            executes against the in-memory pools and signs no transaction, so
+            there is no gas for anyone to absorb.
         All keys from LiquidityPoolManager and SwapRouter are also supported.
 
     Config keys (under ``config["blockchain"]``):
@@ -66,7 +74,7 @@ class DEXService:
         # (provider, pool_id) -> position tracking
         self._user_positions: dict[str, list[dict]] = {}
 
-        logger.info("DEXService initialised (no platform fee; pools charge their LP fee).")
+        logger.info("DEXService initialised (no platform swap fee; pool fee tiers apply).")
 
     @property
     def pools(self) -> LiquidityPoolManager:
@@ -90,8 +98,9 @@ class DEXService:
     ) -> dict:
         """Record a token swap against the in-memory pools.
 
-        No platform fee; each pool hop deducts its LP fee. No tokens move and
-        no transaction is sent — see the class docstring.
+        The platform takes no fee; each pool hop deducts its fee tier from the
+        input. No tokens move and no transaction is sent — see the class
+        docstring.
 
         Args:
             trader: Trader wallet address.
@@ -143,13 +152,12 @@ class DEXService:
         # Execute the swap along the route
         current_amount = amount_in
         executed_pools = []
-        lp_fees: list[dict[str, Any]] = []
+        pool_fees = []
 
         for i, pool_id in enumerate(route["pools"]):
             hop_token_in = route["route"][i]
             result = self._pools.execute_swap(pool_id, hop_token_in, current_amount)
-            lp_fees.append({"pool_id": pool_id, "token": hop_token_in,
-                            "amount": result.get("fee_amount", 0.0)})
+            pool_fees.append(_hop_fee(pool_id, hop_token_in, result))
             current_amount = result["amount_out"]
             executed_pools.append({
                 "pool_id": pool_id,
@@ -180,19 +188,22 @@ class DEXService:
             "route": route["route"],
             "hops": route["hops"],
             "slippage_tolerance": slippage,
+            # Each pool's fee, deducted from that hop's input and kept by the
+            # pool, in that hop's input token; the platform takes none.
+            "pool_fees": pool_fees,
             "platform_fee": 0.0,
-            "lp_fees": lp_fees,
             "executed_at": int(time.time()),
         }, disclosure=(
             "Computed against this service's in-memory pools and recorded. No "
             "tokens moved and no transaction was sent. Each hop's pool deducted "
-            "its liquidity-provider fee (lp_fees); the platform took none."
+            "its fee tier (pool_fees); the platform took none."
         ))
 
         self._trades.append(trade)
         logger.info(
-            "Swap recorded (no tokens moved): trader=%s %s %.6f %s -> %.6f %s",
+            "Swap recorded (no tokens moved): trader=%s %s %.6f %s -> %.6f %s (pool fees %s, platform fee 0)",
             trader, token_in, amount_in, token_out, actual_output, token_out,
+            ", ".join(f"{f['amount']:.6f} {f['token']}" for f in pool_fees),
         )
         return trade
 
@@ -226,8 +237,8 @@ class DEXService:
             "price_impact_pct": route["price_impact_pct"],
             "route": route["route"],
             "hops": route["hops"],
+            "pool_fees": route["fees"],
             "platform_fee": 0.0,
-            "lp_fee_included": True,  # the expected output is after pool fees
             "available": True,
             "warning": route.get("warning"),
         }

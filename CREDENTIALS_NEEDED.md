@@ -70,23 +70,27 @@ flat JSON file passed as their first argument), not `matrix.config.json`.
 ## 4. The 14 protocol services — each CREDENTIAL-GATED until its key is set
 
 Set under `services.<name>.*` in `matrix.config.json`. Each service returns a
-`not_deployed` response naming its exact missing key until configured.
+`not_deployed` response naming its exact missing key until configured. A
+service's API key or secret is the exception: set it as the environment
+variable named beside it. Under `MATRIX_ENV=production` a copy written in the
+file is removed when the config loads, and the variable is what reaches the
+service.
 
 | Service | Required key(s) | Unlocks |
 |---|---|---|
-| payment_channels | `services.payment_channels.endpoint` (Raiden node) + `.token_address` (+ `.contract_address` for on-chain fallback) | L2 state-channel open/route/close |
-| compute | `services.compute.endpoint` + `.api_key` (Akash/Render/Gensyn) | Compute job submit, device rental, reward claim |
-| mpc | `services.mpc.module_address` or `.endpoint` | Threshold sign / recovery / session keys |
-| social_protocols | `services.social_protocols.{lens,farcaster,push}_*` keys | Lens/Farcaster/Push + token launches |
-| advanced_governance | `services.advanced_governance.*_address` + Snapshot hub | veToken, quadratic vote, RetroPGF, bribes, delegation |
-| oracles_plus | `services.oracles_plus.pyth_contract_address` (Base `0x8250f4aF4B972684F7b336503E2D6dFeDeB1487a`) + hermes endpoint; RedStone/API3 keys | Pyth/RedStone/API3 feeds, Keeper jobs |
+| payment_channels | `services.payment_channels.endpoint` (Raiden node) + `.token_address` (+ `.contract_address` for on-chain fallback); a bearer token for a proxy in front of the node, if it has one: env `PAYMENT_CHANNELS_API_KEY` | L2 state-channel open/route/close |
+| compute | `services.compute.endpoint` + env `COMPUTE_API_KEY` (Akash/Render/Gensyn) | Compute job submit, device rental, reward claim, for the operator key only |
+| mpc | `services.mpc.endpoint` + env `MPC_API_KEY` | Threshold sign, for the operator key only (social recovery and session keys refused) |
+| social_protocols | `services.social_protocols.{lens,farcaster,push}_*` settings; the Farcaster (Neynar) key is env `FARCASTER_API_KEY` | Lens/Farcaster/Push + token launches |
+| advanced_governance | `services.advanced_governance.*_address` + Snapshot hub | veToken, quadratic vote, bribes, delegation (RetroPGF refused) |
+| oracles_plus | `services.oracles_plus.pyth_contract_address` (Base `0x8250f4aF4B972684F7b336503E2D6dFeDeB1487a`) + hermes endpoint; the RedStone key, if you have one, is env `REDSTONE_API_KEY` | Pyth/RedStone/API3 feeds, Keeper jobs |
 | tba | `services.tba.account_implementation` (registry is canonical `0x000000006551c19487814612e58FE06813775758`) | ERC-6551 token-bound accounts |
-| storage | `services.storage.api_key` + `.endpoint` (Lighthouse/Ceramic) | Filecoin/Ceramic/OrbitDB |
-| creator_platforms | `services.creator_platforms.{sound,mirror,paragraph}_api_key` | Sound/Mirror/Paragraph |
-| kyc | `services.kyc.api_key` + `.secret_key` (Sumsub/Persona) | KYC/AML start, risk check, credential issue |
+| storage | `services.storage.endpoint` (Lighthouse/Ceramic) + env `FILECOIN_API_KEY` (or `STORAGE_API_KEY`, read when the Filecoin one is unset); an OrbitDB gateway token is env `ORBITDB_API_KEY` | Filecoin/Ceramic/OrbitDB, for the operator key only |
+| creator_platforms | env `SOUND_API_KEY`, `MIRROR_API_KEY`, `PARAGRAPH_API_KEY` | Sound/Mirror/Paragraph |
+| kyc | env `KYC_API_KEY` + `KYC_SECRET_KEY` (Sumsub/Persona) | KYC/AML start, risk check, credential issue |
 | restaking | `services.restaking.{eigenlayer,symbiotic,karak,lido,rocketpool}_*` addresses | Restaking + liquid staking |
-| nft_lending | `services.nft_lending.pool_address` (BendDAO/NFTfi/Arcade) | NFT-backed loans |
-| ccip | `services.ccip.router_address` (Base Sepolia CCIP router) + per-bridge addresses | CCIP/Hyperlane/Wormhole/Axelar/Stargate |
+| nft_lending | `services.nft_lending.pool_address` (BendDAO/NFTfi/Arcade) | NFT-backed loans, for the operator key only |
+| ccip | `services.ccip.router_address` (Base Sepolia CCIP router) + `services.ccip.stargate_router`; a message tracker's key, if it takes one, is env `CCIP_TRACKER_API_KEY` | CCIP and Stargate token bridges, for the operator key only (message sends refused) |
 | auctions | `services.auctions.auction_address` + `.orderbook_address` | Dutch/English/sealed-bid + orderbook |
 
 ## 5. Security layer — a separately installed private package
@@ -104,7 +108,25 @@ you set in this repository.
   That is a normal state for local and testnet use.
 - Under `MATRIX_ENV=production` the gateway refuses to start on the no-op
   backend, and names the cause. The readiness probe (`GET /ready`) fails on it
-  too, as a second line of defence. `docker-compose.prod.yml` and
+  too, as a second line of defence.
+- With the core installed, the gateway builds the security gate at startup and
+  loads its saved state before it serves, and first checks that the core names a
+  caller the way the platform does (`runtime/auth/identity.py`; the core exports
+  its rule as `canonical_identity`). A core that does not is not started: what it
+  holds about a caller under another spelling of the same wallet would bind for
+  nobody once the platform names that caller in one spelling. If any of these
+  steps fails, a production gateway refuses to start and names the cause; any
+  other gateway runs with
+  `GET /ready` failing, and no request is handed a gate, or decided by
+  another policy, in its place: every request the gate would decide is
+  refused, reads included, and so is every agent tool call. A gate that did
+  come up and then cannot decide a single call refuses it under ENFORCE,
+  reads included; under OBSERVE it refuses the call when it could move value
+  or change state and lets a plain read through. When the gate raises instead
+  of answering, the HTTP gate and the tool-call check refuse the call if it
+  could move value and let a plain read through, in either mode; Trinity's
+  hand-off to Neo refuses every request it escalates then, reads included.
+  `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
   defaults to it, and the image this repository's `Dockerfile` builds installs
   only the public requirements, so on those routes a gateway without the core
@@ -209,8 +231,10 @@ gate → tool → chain**. To exercise it end-to-end on Base Sepolia:
      verify it on `sepolia.basescan.org`.
    - *Agent-routed:* `POST /chat` as Trinity with a read request → returns data.
      Ask for an execution → Trinity calls `request_execution` → the Morpheus gate
-     evaluates (OBSERVE: logs, allows) → Neo executes via the service dispatcher →
-     EAS attestation is written. Inspect the gateway logs for the
+     evaluates (under OBSERVE it logs its verdict and lets the call through,
+     except that a gate fault on a call that could move value or change state,
+     or App Attest when it is enforced, still refuses it) → Neo executes via
+     the service dispatcher → EAS attestation is written. Inspect the gateway logs for the
      `trinity->morpheus->neo` hand-off and the attestation tx.
 6. **Confirm the boundary:** a `/chat` as Trinity asking to run a state-changing
    `platform_action` directly returns `[DENIED]` (she must use the hand-off) — proof

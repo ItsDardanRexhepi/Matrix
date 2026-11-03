@@ -1,10 +1,12 @@
 """The periodic sweep prunes every rate limiter the gateway keys buckets in.
 
 ``RateLimiter`` creates a bucket on first touch for whatever key it is handed
-and keeps it until ``cleanup()`` removes it. 9c3657f introduced the sweep and
-named two of the three limiters; ``rate_limiter_wallet`` — keyed by SIWE
-address, where addresses are free to mint and /auth/nonce and /auth/verify are
-public — kept a bucket for every address that ever signed in.
+and keeps it until ``cleanup()`` removes it. The commit "fix: WebSocket
+validation, cleanup scheduling, CI gating, graceful shutdown, demo safety
+warning" introduced the sweep and named two of the three limiters;
+``rate_limiter_wallet`` — keyed by SIWE address, where addresses are free to
+mint and /auth/nonce and /auth/verify are public — kept a bucket for every
+address that ever signed in.
 
 The limiters are derived from the server object, not listed, so a fourth
 limiter cannot be added and forgotten the same way.

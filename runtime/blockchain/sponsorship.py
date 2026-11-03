@@ -45,7 +45,6 @@ behaviour. Denial happens only where a cap or an allowlist is configured.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 import time
 import uuid
@@ -145,52 +144,26 @@ class SponsorshipPolicy:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
             with self._connect() as conn:
                 conn.executescript(_SCHEMA)
+                # A spender recorded before the platform's one spelling of a
+                # caller (this meter kept a 0X-prefixed address apart from the
+                # same address with 0x) is rewritten in it, so what it spent
+                # still counts against its one budget.
+                conn.execute(
+                    "UPDATE sponsorship_spend SET identity = lower(trim(identity)) "
+                    "WHERE trim(identity) GLOB ? AND identity <> lower(trim(identity))",
+                    ("0[xX]" + "[0-9a-fA-F]" * 40,))
 
     # ── construction ─────────────────────────────────────────────────────
 
     @classmethod
     def from_config(cls, config: dict) -> "SponsorshipPolicy":
         cfg = config or {}
-        bc = cfg.get("blockchain", {}) or {}
-        # Resolve the paymaster block through the ONE resolver that knows its
-        # two documented homes (top-level `paymaster` and `blockchain.paymaster`)
-        # rather than re-deriving it here. An earlier draft of this method read
-        # only the second, which silently dropped the allowlist for every
-        # deployment using the first — caught by tests/test_paymaster_route.py.
-        try:
-            from gateway.paymaster import paymaster_config
-            block = paymaster_config(cfg)
-        except Exception:  # gateway unavailable (runtime imported standalone)
-            block = (cfg.get("paymaster") or bc.get("paymaster") or {})
-        policy = (block.get("policy", {}) or {}) if isinstance(block, dict) else {}
-
-        allowed = policy.get("allowed_actions")
-        if allowed is not None and not isinstance(allowed, (list, tuple, set)):
-            logger.warning(
-                "paymaster.policy.allowed_actions is %s, not a list — ignoring it "
-                "rather than guessing an allowlist", type(allowed).__name__)
-            allowed = None
-
-        cap: Optional[float]
-        raw_cap = policy.get("daily_cap_usd")
-        if raw_cap in (None, ""):
-            cap = None
-        else:
-            try:
-                cap = float(raw_cap)
-            except (TypeError, ValueError):
-                # §DL: a malformed cap is not "no cap". Refusing to parse it into
-                # unlimited spend is the only safe reading.
-                logger.error(
-                    "paymaster.policy.daily_cap_usd is %r, which is not a number. "
-                    "Treating it as zero (deny) rather than as no cap.", raw_cap)
-                cap = 0.0
-
+        allowed, cap = policy_settings(cfg)
         db_cfg = cfg.get("database", {}) or {}
         base = Path(str(db_cfg.get("path", "data/the-matrix.db"))).expanduser()
         if not base.is_absolute():
             base = Path.cwd() / base
-        return cls(allowed_actions=list(allowed) if allowed is not None else None,
+        return cls(allowed_actions=allowed,
                    daily_cap_usd=cap,
                    db_path=base.with_name("sponsorship_spend.db"))
 
@@ -652,6 +625,131 @@ def summarize_labels(labels: Sequence[str]) -> str:
     return shown
 
 
+def policy_settings(config: dict) -> tuple[Optional[list], Optional[float]]:
+    """(allowed_actions, daily_cap_usd) exactly as the signer will read them.
+
+    Split out of `SponsorshipPolicy.from_config` so that DESCRIBING the policy
+    (describe_gas_policy) and ENFORCING it read one parser: a description that
+    re-derived the cap its own way could disagree with the enforcement it
+    describes, which is the defect it exists to remove.
+    """
+    cfg = config or {}
+    bc = cfg.get("blockchain", {}) or {}
+    # Resolve the paymaster block through the ONE resolver that knows its
+    # two documented homes (top-level `paymaster` and `blockchain.paymaster`)
+    # rather than re-deriving it here. An earlier draft of this method read
+    # only the second, which silently dropped the allowlist for every
+    # deployment using the first — caught by tests/test_paymaster_route.py.
+    try:
+        from gateway.paymaster import paymaster_config
+        block = paymaster_config(cfg)
+    except Exception:  # gateway unavailable (runtime imported standalone)
+        block = (cfg.get("paymaster") or bc.get("paymaster") or {})
+    policy = (block.get("policy", {}) or {}) if isinstance(block, dict) else {}
+
+    allowed = policy.get("allowed_actions")
+    if allowed is not None and not isinstance(allowed, (list, tuple, set)):
+        logger.warning(
+            "paymaster.policy.allowed_actions is %s, not a list — ignoring it "
+            "rather than guessing an allowlist", type(allowed).__name__)
+        allowed = None
+
+    cap: Optional[float]
+    raw_cap = policy.get("daily_cap_usd")
+    if raw_cap in (None, ""):
+        cap = None
+    else:
+        try:
+            cap = float(raw_cap)
+        except (TypeError, ValueError):
+            # §DL: a malformed cap is not "no cap". Refusing to parse it into
+            # unlimited spend is the only safe reading.
+            logger.error(
+                "paymaster.policy.daily_cap_usd is %r, which is not a number. "
+                "Treating it as zero (deny) rather than as no cap.", raw_cap)
+            cap = 0.0
+
+    return (list(allowed) if allowed is not None else None), cap
+
+
+def describe_gas_policy(config: dict) -> dict:
+    """What gas sponsorship this deployment actually provides, for a user.
+
+    Every tool that used to promise a user unconditional gas coverage returns
+    this instead. It reads the same settings parser (`policy_settings`) and the
+    same key resolver (`resolve_paymaster_key`, `is_placeholder_value`) as the
+    signers, and states the policy as MeteredSigner applies it:
+
+      * an allowlist, when one is configured, is read for every platform-signed
+        operation (by its `<capability>.<method>` name), with or without a cap,
+        and for user operations sent to /api/v1/paymaster/sign;
+      * with a daily cap, every platform-signed operation is also checked
+        against the cap and an attributable identity, and refused otherwise;
+      * with neither, MeteredSigner does not consult the policy at all.
+
+    tests/test_gas_claims_follow_the_sponsorship_policy.py measures each of
+    those against SponsorshipPolicy and MeteredSigner for five configurations,
+    including the example config's allowlisted policy. It reads configuration
+    only: no ledger is opened, no price is fetched.
+    """
+    from runtime.blockchain.web3_manager import is_placeholder_value, resolve_paymaster_key
+
+    cfg = config or {}
+    platform_signs = not is_placeholder_value(resolve_paymaster_key(cfg))
+    try:
+        from gateway.paymaster import paymaster_config, signer_configured
+        user_ops = bool(signer_configured(cfg) and paymaster_config(cfg).get("address"))
+    except Exception:  # gateway unavailable (runtime imported standalone)
+        user_ops = False
+    sponsored = platform_signs or user_ops
+    allowed, cap = policy_settings(cfg)
+    listed = ", ".join(str(a) for a in allowed) if allowed is not None else ""
+
+    if not sponsored:
+        statement = ("Gas sponsorship is not configured on this deployment, so the "
+                     "platform pays no gas here.")
+        cap = None
+        allowed = None
+    elif cap is not None:
+        scope = (f"only for the actions its allowlist names ({listed})"
+                 if allowed is not None else "for your operations")
+        reasons = (["its action is not on that list"] if allowed is not None else []) + [
+            "it would cross the cap",
+            "it cannot be attributed to a signed-in identity"]
+        statement = (f"The platform pays gas {scope}, up to ${cap:.2f} per identity in a "
+                     "rolling 24 hours. An operation the platform would sign for you is "
+                     "refused, with the reason, rather than charged to you when "
+                     + ", when ".join(reasons[:-1]) + ", or when " + reasons[-1]
+                     + ". Attestations you ask for through an agent tool are metered "
+                     "the same way; the attestation capabilities are refused. Not "
+                     "counted against the cap: the platform's own records (its record of "
+                     "each capability call, records it writes after another operation), "
+                     "which the platform pays for without metering.")
+    else:
+        statement = ("The platform pays gas for operations it signs for you; this "
+                     "deployment sets no daily cap.")
+        if allowed is not None:
+            statement += (f" It pays only for the actions its allowlist names ({listed}): an "
+                          "operation the platform would sign for you, and an app-signed user "
+                          "operation sent to /api/v1/paymaster/sign, whose action is not on "
+                          "that list is refused, with the reason. Not checked against the "
+                          "list: the platform's own records (its record of each capability "
+                          "call, records it writes after another operation).")
+    capped = sponsored and cap is not None
+    binds = sponsored and (cap is not None or allowed is not None)
+    return {
+        "sponsored": sponsored,
+        "daily_cap_usd": cap,
+        "cap_window": "rolling 24h" if cap is not None else None,
+        "allowed_actions": allowed,
+        "allowlist_applies_to_platform_signed": bool(sponsored and allowed is not None),
+        "identity_required": capped,
+        "unmetered_operations": (sorted(UNMETERED_PLATFORM_OPERATIONS)
+                                 if binds else []),
+        "statement": statement,
+    }
+
+
 # ── who is spending ──────────────────────────────────────────────────────
 #
 # A ContextVar rather than a parameter on 17 files' `execute(**kwargs)`: the
@@ -667,18 +765,20 @@ _caller_identity: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 def canonical_identity(identity: Any) -> str:
-    """One spelling per spender, decided in one place.
+    """One spelling per spender: the platform's one spelling of a caller
+    (runtime/auth/identity.py), as a string.
 
     An EVM address is case-insensitive — EIP-55 mixed case is a checksum, not an
-    identity — so `0xCAFE…` and `0xcafe…` must draw on the same budget or the
-    cap is trivially doubled by changing capitalisation. Anything that is NOT an
-    address keeps its case: a generic user id may distinguish `A` from `a`, and
-    folding those together would merge two spenders into one.
+    identity — so `0xCAFE…`, `0xcafe…` and `0XCAFE…` must draw on the same
+    budget or the cap is trivially doubled by changing capitalisation. Anything
+    that is NOT an address keeps its case: a generic user id may distinguish `A`
+    from `a`, and folding those together would merge two spenders into one.
+    The rule lives in one module, so the meter cannot come to spell a caller
+    differently from the session that named it.
     """
-    text = str(identity or "").strip()
-    if re.fullmatch(r"0x[0-9a-fA-F]{40}", text):
-        return text.lower()
-    return text
+    from runtime.auth.identity import canonical_identity as _one_spelling
+
+    return _one_spelling(str(identity or "").strip())
 
 
 def set_caller_identity(identity: str):
@@ -722,33 +822,53 @@ def resolve_caller_identity() -> str:
 # Every platform signature in runtime/blockchain/ is produced here, and
 # tests/test_sponsorship_policy_is_enforced.py fails if a new one is not.
 #
-# The exemptions below sign with no policy check: no allowlist and no daily
-# cap. They are listed rather than simply absent so the set is reviewable — an
-# unlisted unmetered site fails the test.
+# The exemptions below are writes the platform signs with no policy check (no
+# allowlist and no daily cap): its own record-keeping, not sponsorship of a
+# caller's operation. Metering them against a per-CALLER daily cap would
+# charge one user's budget for another's record and would stop the audit trail
+# at the cap. They are listed rather than simply absent so the set is
+# reviewable — an unlisted unmetered site fails the test.
 #
-# Three are EAS writes signed with the platform key, and their call data is not
-# fixed. The catalog capabilities create_attestation and batch_attest reach
-# eas.attest (when the batch queue submits) and eas.attest_time_critical with a
-# recipient and payload fields the caller supplies, and revoke_attestation
-# reaches eas.revoke with the attestation uid and schema the caller names. The
-# service dispatcher's record of a completed action goes through the same
-# queue. EASClient.attest is also called directly by 13 actions of the agent's
-# blockchain tools (runtime/blockchain/*.py) and by the conversion pipeline for
-# a contract it deployed, and the real-estate service queues its own.
-# docs/blockchain.md lists every path. They are exempt so that one caller's
-# daily cap is not charged for another's attestation and the audit trail does
-# not stop at the cap; the cost is that whoever can reach those paths spends
-# the platform's gas with no cap. The fourth, gas_sponsor.sponsor, is
-# GasSponsor.sponsor_transaction, which signs and sends whatever transaction it
-# is handed; nothing in this tree calls it.
+# WHAT THEY COVER IS DECIDED BY THE ENTRY POINT, NOT BY THE CALL DATA. This
+# comment used to rest on the exempt writes carrying fixed call data the model
+# does not choose. That was false: the model-facing `eas` tool passed model-chosen action, agent and
+# recipient, over an unbounded batch, through `eas.attest`; eight more tools
+# (agent identity, cross-border, gaming, identity, insurance, IP, securities,
+# supply chain) attested the same way; and the attestation capabilities a caller composes
+# (`create_attestation`, `batch_attest`, `revoke_attestation`) signed as
+# `eas.attest` / `eas.attest_time_critical` / `eas.revoke`. A tool attestation
+# now passes its own `<capability>.<method>` to EASClient.attest, the three
+# capabilities reach metered entry points (AttestationService.attest_for_caller,
+# batch_attest, revoke — metered as `attestation.attest`,
+# `attestation.batch_attest` and `attestation.revoke`), a batch is bounded, and
+# `eas.revoke` is gone: nothing revokes on the platform's own behalf.
+# tests/test_platform_attestations_are_metered.py fails on an unmetered one.
+#
+# What remains: `eas.attest` / `eas.attest_time_critical` as reached from
+# EASClient.attest with no `operation` and AttestationService.attest — the
+# service dispatcher's record of each state-modifying action it completes, the
+# conversion pipeline's record of a contract it deployed, and the real-estate
+# service's records on its own queue — and `gas_sponsor.sponsor`, which is
+# GasSponsor.sponsor_transaction: it signs and sends whatever transaction it is
+# handed, and nothing in this tree calls it. docs/blockchain.md lists every
+# path by file and function.
 #
 # AN EXEMPTION IS A CLAIM, AND ONE OF THEM WAS FALSE. `web3.platform_account`
 # was listed as "shared account handle; every USE of it is a call site metered on
 # its own". No use of it was. `Web3Manager.get_account()` returned the unmetered
 # signer, `Web3Manager.send_transaction` signed with it, and that method is the
-# ONLY signing path the 45 services in runtime/blockchain/services/** have — 35
-# call sites across 16 services, every one of them a platform signature the
-# D-045 cap never saw. The claim was the whole justification; nothing checked it.
+# signing path the services in runtime/blockchain/services/** send through, so
+# every signature it produced for them was one the D-045 cap never saw. (It is
+# not their only one. The conversion pipeline's deploy and the attestation
+# service's revoke, time-critical write and queued writes sign and broadcast on
+# their own, the queued writes through the EAS client, as NeoSafe's revenue
+# record does. The deploy and the revoke are metered, as
+# `contract_conversion.deploy` and `attestation.revoke`; the time-critical write
+# and the queued writes are metered when a caller asks for them, as
+# `attestation.attest` or `attestation.batch_attest`, and are the listed
+# `eas.attest_time_critical` and `eas.attest` below only as the platform's own
+# record, as the revenue record is.) The claim was the whole justification;
+# nothing checked it.
 #
 # The exemption is gone. `Web3Manager.signer()` is metered like every other
 # capability's `_platform_signer`, and `get_account()` hands back an address, not
@@ -757,9 +877,12 @@ def resolve_caller_identity() -> str:
 # allowlist that silently excluded the platform's busiest signing path was
 # exactly the failure this list exists to prevent.
 UNMETERED_PLATFORM_OPERATIONS = {
-    "eas.attest": "EAS attestation write (EASClient.attest), the batch queue's submissions included",
-    "eas.attest_time_critical": "the same write on the time-critical path (create_attestation, batch_attest)",
-    "eas.revoke": "revoking an attestation by the uid the caller names (revoke_attestation)",
+    "eas.attest": "EAS attestation written as the platform's own record "
+                  "(AttestationService.attest, or EASClient.attest with no "
+                  "operation): the dispatcher's record of a capability call, or "
+                  "a record a service writes after another operation; a "
+                  "caller's own attestation is metered instead",
+    "eas.attest_time_critical": "the same platform record on the time-critical path",
     "gas_sponsor.sponsor": "GasSponsor.sponsor_transaction: signs and sends the transaction it "
                            "is handed; nothing in this tree calls it",
 }
@@ -830,6 +953,175 @@ def platform_address(key: str) -> PlatformAddress:
     return PlatformAddress(Account.from_key(key))
 
 
+# ── what happened to a signature after it was signed ─────────────────────
+#
+# `settle` and `abandon` existed and nothing called them. Every metered
+# signature stayed SIGNED until the 24h sweep: the ledger never recorded SPENT,
+# and a signature that never reached the chain never gave its budget back. The
+# one party that learns a signature's fate is the receipt wait, so the signer
+# files each signature it makes under its transaction hash, which exists the
+# moment the bytes are signed, and in its NONCE SLOT: the chain, the account and
+# the nonce it was signed with. A receipt then closes the rows:
+#
+#   * its own: the transaction was MINED, success or revert, and its row is
+#     SPENT;
+#   * another's in the same slot: only one transaction in a slot can ever be
+#     mined, so no other signature in it ever will be — one the node refused,
+#     one whose send nobody heard back from, one never broadcast, and an
+#     earlier signature of the very same bytes, whose one payment the mined
+#     copy's row already holds — and each gives its budget back.
+#
+# WHAT THE NODE ANSWERS THE SEND CLOSES NOTHING. This gave a signature's budget
+# back for an answer on a list of refusals, once the node, asked by hash, said
+# it held no copy. Neither answer is about the network: a proxy that retries a
+# POST can deliver the bytes to one backend and relay another's refusal, and
+# the lookup can be answered by a backend that cannot see that pool. Reproduced
+# over real HTTP: the budget came back, the transaction was mined, gas was paid,
+# and the identity's next send was granted against a cap the two together
+# exceeded. The lookup also held a thread of the process's shared pool for up
+# to most of a minute against a node that did not answer, and enough refused
+# sends at once left an unrelated receipt wait queued behind them. A refused
+# signature now holds its budget like one whose fate nobody learned, until a
+# receipt in its slot or its window says otherwise. On the shared manager's
+# send the next transaction takes the nonce the refused one never took, so the
+# budget comes back once that one is mined and its receipt is waited for. A
+# send whose receipt nobody waits for (some services broadcast and return)
+# settles nothing and closes no slot.
+#
+# PER PROCESS, AND THAT IS ENOUGH. A transaction and its receipt wait run in
+# the process that signed it. A row these tables no longer hold (evicted, or
+# signed by a process that has since restarted) simply stays SIGNED — the
+# accounting it had before this existed, which holds budget and never releases
+# it early. A transaction signed with no chain id is in no slot: it can be
+# mined on any chain the account is on, so no receipt on one shows it never
+# will be.
+
+import threading  # noqa: E402  (kept beside the thing it exists for)
+from collections import OrderedDict  # noqa: E402
+
+# Bounded: a signature whose sender never waits for a receipt is never closed,
+# and the tables must not grow with them. Evicting the oldest leaves its row
+# SIGNED, the conservative state.
+_MAX_TRACKED_SIGNATURES = 4096
+
+#: (chain id, account, nonce). At most one transaction in a slot is ever mined.
+_Slot = tuple[int, str, int]
+
+#: hash -> the rows filed under it, oldest first: signing is deterministic, so
+#: the same bytes signed twice are filed twice under one hash.
+_rows_by_hash: "OrderedDict[str, list[tuple[SponsorshipPolicy, str]]]" = OrderedDict()
+#: hash -> its slot, for every signature the platform's signer makes, metered or
+#: not: one of the platform's own records mined in a slot settles it as surely.
+_slot_of: "OrderedDict[str, _Slot]" = OrderedDict()
+#: slot -> the hashes signed in it.
+_hashes_in_slot: "OrderedDict[_Slot, set[str]]" = OrderedDict()
+_signed_rows_lock = threading.Lock()
+
+
+def _tx_key(tx_hash: Any) -> str:
+    """One spelling per transaction hash: `0x` + lowercase hex. hexbytes 1.x's
+    `.hex()` drops the prefix and a node's answer carries it, so neither form
+    may be compared raw."""
+    if isinstance(tx_hash, (bytes, bytearray, memoryview)):
+        return "0x" + bytes(tx_hash).hex()
+    text = str(tx_hash or "").strip().lower()
+    if text and not text.startswith("0x"):
+        text = "0x" + text
+    return text
+
+
+def _whole_number(value: Any) -> Optional[int]:
+    """A transaction's chain id or nonce as eth_account takes it: an int, or a
+    hex or decimal string. None for anything else."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return None
+    return None
+
+
+def _slot(tx: Any, sender: Any) -> Optional[_Slot]:
+    """The slot *sender* signs *tx* in, or None when it is in none."""
+    try:
+        chain, nonce = _whole_number(tx.get("chainId")), _whole_number(tx.get("nonce"))
+    except AttributeError:
+        return None
+    account = str(sender or "").strip().lower()
+    if chain is None or nonce is None or not account:
+        return None
+    return (chain, account, nonce)
+
+
+def _bound(table: "OrderedDict[Any, Any]") -> None:
+    while len(table) > _MAX_TRACKED_SIGNATURES:
+        table.popitem(last=False)
+
+
+def _note_signature(tx_hash: Any, slot: Optional[_Slot]) -> None:
+    key = _tx_key(tx_hash)
+    if not key or slot is None:
+        return
+    with _signed_rows_lock:
+        _slot_of[key] = slot
+        _slot_of.move_to_end(key)
+        _hashes_in_slot.setdefault(slot, set()).add(key)
+        _hashes_in_slot.move_to_end(slot)
+        # A slot holds only signatures still tracked by hash: one slot can
+        # gather a signature per send for as long as a node refuses them all.
+        while len(_slot_of) > _MAX_TRACKED_SIGNATURES:
+            evicted, its_slot = _slot_of.popitem(last=False)
+            hashes = _hashes_in_slot.get(its_slot)
+            if hashes is not None:
+                hashes.discard(evicted)
+                if not hashes:
+                    del _hashes_in_slot[its_slot]
+        _bound(_hashes_in_slot)
+
+
+def _file_signature(tx_hash: Any, policy: "SponsorshipPolicy", reservation_id: str) -> None:
+    key = _tx_key(tx_hash)
+    if not key or not reservation_id or policy is None:
+        return
+    with _signed_rows_lock:
+        _rows_by_hash.setdefault(key, []).append((policy, reservation_id))
+        _rows_by_hash.move_to_end(key)
+        _bound(_rows_by_hash)
+
+
+def settle_signature(tx_hash: Any) -> bool:
+    """A receipt answered for *tx_hash*: the transaction was MINED, and gas was
+    paid whether it succeeded or reverted. Its ledger row is marked SPENT, and
+    every other signature in its slot gives its budget back, because none of
+    them can be mined now. False when this process holds no row filed under
+    *tx_hash* itself (unmetered, uncapped, or unknown); the rest of its slot is
+    closed all the same."""
+    key = _tx_key(tx_hash)
+    with _signed_rows_lock:
+        own = _rows_by_hash.pop(key, [])
+        slot = _slot_of.pop(key, None)
+        others: list[tuple["SponsorshipPolicy", str]] = []
+        if slot is not None:
+            for other in _hashes_in_slot.pop(slot, set()):
+                if other != key:
+                    others.extend(_rows_by_hash.pop(other, []))
+                    _slot_of.pop(other, None)
+    if own:
+        policy, reservation_id = own[-1]
+        policy.settle(reservation_id)
+    # An earlier signature of these very bytes is the same transaction, and the
+    # row settled above holds its one payment. With no slot the same bytes can
+    # be mined on another chain too, so an earlier one keeps holding.
+    given_back = (own[:-1] if slot is not None else []) + others
+    for policy, reservation_id in given_back:
+        policy.abandon(reservation_id)
+    return bool(own)
+
+
 class MeteredSigner:
     """An eth_account signer that consults the sponsorship policy at the moment
     it signs — when the transaction's real gas numbers exist.
@@ -854,8 +1146,10 @@ class MeteredSigner:
 
         A caller that goes on to broadcast is the only party that ever learns
         whether the transaction landed, and it had no handle on the row — which
-        is why the row could only ever be written at signing time. It can now
-        call `policy.settle(...)` or `policy.abandon(...)` with this.
+        is why the row could only ever be written at signing time. The row is
+        also filed under the signed transaction's hash and in its nonce slot,
+        so the receipt wait closes it without holding this signer
+        (`settle_signature`).
         """
         return self._last_reservation_id
 
@@ -873,8 +1167,17 @@ class MeteredSigner:
         return (gas * price / 1e18) * float(self._eth_usd)
 
     def sign_transaction(self, tx):
-        if not self._metered or self._policy is None or not self._policy.enforces_a_cap:
-            return self._account.sign_transaction(tx)
+        # THE ALLOWLIST IS READ WITH OR WITHOUT A CAP. This returned early
+        # whenever no daily cap was set, before the policy was consulted at
+        # all, so an operator who configured `allowed_actions` and no cap had
+        # every capability signature signed whatever the list said. With no
+        # cap and no allowlist `authorize_and_reserve` allows without touching
+        # the ledger, so an operator who configured nothing sees no change.
+        slot = _slot(tx, getattr(self._account, "address", None))
+        if not self._metered or self._policy is None:
+            return _in_its_slot(self._account.sign_transaction(tx), slot)
+        if not self._policy.enforces_a_cap and self._policy.allowed_actions is None:
+            return _in_its_slot(self._account.sign_transaction(tx), slot)
 
         decision = self._policy.authorize_and_reserve(
             self._action, identity=self._identity, est_usd=self._estimate_usd(tx))
@@ -891,7 +1194,22 @@ class MeteredSigner:
         # budget, because it may land, and it does not claim gas has been paid.
         self._policy.commit(decision.reservation_id)
         self._last_reservation_id = decision.reservation_id
-        return signed
+        # Filed under the transaction's own hash, which the signed bytes already
+        # determine, and in its slot, so a receipt for it or for another
+        # transaction in the slot closes the row.
+        tx_hash = getattr(signed, "hash", None)
+        if tx_hash is not None:
+            _file_signature(tx_hash, self._policy, decision.reservation_id)
+        return _in_its_slot(signed, slot)
+
+
+def _in_its_slot(signed: Any, slot: Optional[_Slot]) -> Any:
+    """Put a signature the platform made in its slot, metered or not, and
+    return it."""
+    tx_hash = getattr(signed, "hash", None)
+    if tx_hash is not None:
+        _note_signature(tx_hash, slot)
+    return signed
 
 
 async def platform_signer(config: dict, action: str, *, key: Optional[str] = None,
@@ -907,8 +1225,8 @@ async def platform_signer(config: dict, action: str, *, key: Optional[str] = Non
     from eth_account import Account
 
     cfg = config or {}
-    bc = cfg.get("blockchain", {}) or {}
-    raw_key = key if key is not None else bc.get("paymaster_private_key", "")
+    from runtime.blockchain.web3_manager import resolve_paymaster_key
+    raw_key = key if key is not None else resolve_paymaster_key(cfg)
     account = Account.from_key(raw_key)
 
     if not metered:

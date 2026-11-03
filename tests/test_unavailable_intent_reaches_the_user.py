@@ -63,12 +63,14 @@ async def _intent_enrichments(text: str) -> list[str]:
 
 
 def test_the_inventory_is_what_the_measurement_found():
-    """16 entries, and the `unavailable` set is EXACTLY the no-`action_name`
+    """19 entries, and the `unavailable` set is EXACTLY the no-`action_name`
     set. If they ever diverge, one of the two halves of the idiom was applied
-    without the other."""
+    without the other. (16 until create_attestation, revoke_attestation and
+    batch_attest were refused at every door that dispatches them —
+    tests/test_no_request_makes_the_attestation_service_sign.py.)"""
     missing_name = {a for a, g in INTENT_ACTION_MAP.items() if "action_name" not in g}
 
-    assert len(UNAVAILABLE) == 16
+    assert len(UNAVAILABLE) == 19
     assert set(UNAVAILABLE) == missing_name
 
 
@@ -362,9 +364,10 @@ async def test_the_rendered_text_carries_no_unscoped_negative(action):
 # path jumps its queue: the other eleven cost embarrassment, these two cost a
 # user a working recipe.
 #
-# NOT INTRODUCED BY THE REPAIR. All sixteen strings predate it. What 9eb5c06 did
-# was make them REACHABLE — the purest form of the pre-repoint hazard: the text
-# was wrong for as long as it existed, and arming the path turned latent
+# NOT INTRODUCED BY THE REPAIR. All sixteen strings predate it. What the commit
+# "The honest-unavailable idiom has never reached a user — repair the consumer"
+# did was make them REACHABLE — the purest form of the pre-repoint hazard: the
+# text was wrong for as long as it existed, and arming the path turned latent
 # wrongness into live disclosure without a single character of it changing.
 
 DISCLOSURE_SHAPES = (

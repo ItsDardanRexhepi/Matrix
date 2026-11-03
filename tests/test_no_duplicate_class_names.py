@@ -1,10 +1,11 @@
 """No two shipping classes share a name.
 
-65e09e6 found two unrelated classes both called DataAggregator, with different
-methods, and three GET routes calling methods that existed on neither: an
-importer that reaches for a name gets whichever class its import path happens
-to name, and nothing at the call site says which. The dashboard one was renamed
-DashboardAggregator.
+The commit "fix(RUN-6,NEW-14): dead methods, the DataAggregator collision,
+community_create" found two unrelated classes both called DataAggregator, with
+different methods, and three GET routes calling methods that existed on
+neither: an importer that reaches for a name gets whichever class its import
+path happens to name, and nothing at the call site says which. The dashboard
+one was renamed DashboardAggregator.
 
 The rename was applied to that pair only. The one other duplicated name in the
 tree — RoyaltyEnforcement, defined in both ip_royalties/ and nft_services/ with

@@ -2,22 +2,16 @@
 
 `SocialService._is_public_item` says: "Only publicly-visible items may enter
 ANY feed ... Anything not explicitly 'public' is treated as private and never
-surfaced", and that the dispatcher's feed path and the HTTP ripple apply "this
-same reading". They applied a copy of it, `service_dispatcher.declares_non_public`,
-which disagreed with the original on inputs a caller writes. Measured before
-the change, through `ServiceDispatcher.execute("send_message", ...)`:
+surfaced". The platform's public feed (`SocialFeedEngine`, served from
+/social/feed with no session) stored whatever the service dispatcher handed
+it, and the HTTP ripple announced whatever it was given, so a share
+SocialService's own feed hid was published and rippled.
 
-  * ``proof_data {"visibility": None}``      -> 1 row on the public feed,
-    0 items in SocialService.get_feed
-  * ``proof_data {"visibility": " public"}`` -> 1 row on the public feed,
-    0 items in SocialService.get_feed
-
-and the HTTP ripple, which uses the dispatcher's copy, announced both. The
-content stayed out of the row; the share's existence and its actor did not.
-
-Both now call one function, `social.visibility.is_public`. These tests hold
-the three surfaces against each other on a table of inputs, rather than
-against a list of words, so a fourth reading added later fails here too.
+All three now call one function, `social.visibility.is_public`. These tests
+hold the three surfaces against each other on a table of inputs a caller
+writes, rather than against a list of words, so a fourth reading added later
+fails here too. The public feed is the real engine on a scratch database,
+read back after the dispatcher's ingest.
 """
 
 from __future__ import annotations
@@ -26,11 +20,10 @@ import asyncio
 
 import pytest
 
-from runtime.blockchain.services.service_dispatcher import (
-    ServiceDispatcher,
-    declares_non_public,
-)
+from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
 from runtime.blockchain.services.social.service import SocialService
+from runtime.db.database import Database
+from runtime.social.feed_engine import SocialFeedEngine
 
 _OWNER = "0x" + "1" * 40
 
@@ -66,20 +59,44 @@ def _item(top: dict, proof_data) -> dict:
     return item
 
 
-class _Feed:
-    def __init__(self) -> None:
-        self.published: list[dict] = []
+class _Feed(SocialFeedEngine):
+    """The public feed on a scratch database, counting what it is handed so a
+    test can wait for the dispatcher's fire-and-forget ingest."""
+
+    def __init__(self, db) -> None:
+        super().__init__(db)
+        self.handed = 0
+        self.finished = 0
 
     async def ingest(self, **kwargs):
-        self.published.append(kwargs)
+        self.handed += 1
+        try:
+            return await super().ingest(**kwargs)
+        finally:
+            self.finished += 1
+
+    async def settle(self) -> None:
+        for _ in range(200):
+            await asyncio.sleep(0.005)
+            if self.handed and self.finished == self.handed:
+                return
+
+    async def stored(self) -> list:
+        return await self.get_feed(limit=100)
 
 
-async def _dispatcher_publishes(top: dict, proof_data) -> bool:
-    """Does the dispatcher's feed ingest publish this share? Through a stand-in
-    social service that accepts anything, so the gate is the only thing
-    between the item and the public feed."""
+@pytest.fixture
+async def feed(tmp_path):
+    db = Database({"database": {"path": str(tmp_path / "feed.db")}})
+    yield _Feed(db)
+    await db.close()
+
+
+async def _dispatcher_publishes(feed, top: dict, proof_data) -> bool:
+    """Does the public feed hold this share after the dispatcher handed it
+    over? Through a stand-in social service that accepts anything, so the
+    feed's own door is the only thing between the item and the public feed."""
     d = ServiceDispatcher({})
-    feed = _Feed()
     d._feed_engine = feed
 
     async def _quiet(*a, **k):
@@ -97,9 +114,9 @@ async def _dispatcher_publishes(top: dict, proof_data) -> bool:
     if proof_data is not None:
         params["proof_data"] = proof_data
     await d.execute("send_message", params=params)
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    return len(feed.published) == 1
+    await feed.settle()
+    assert feed.handed == 1, "premise: the dispatcher handed the share to the feed"
+    return len(await feed.stored()) == 1
 
 
 def _ripple_announces(top: dict, proof_data) -> bool:
@@ -116,9 +133,9 @@ def _ripple_announces(top: dict, proof_data) -> bool:
 
 
 @pytest.mark.parametrize("label,top,proof_data", _TABLE, ids=[r[0] for r in _TABLE])
-async def test_the_feed_the_dispatcher_and_the_ripple_agree(label, top, proof_data):
+async def test_the_feed_the_dispatcher_and_the_ripple_agree(feed, label, top, proof_data):
     shown = SocialService._is_public_item(_item(top, proof_data))
-    published = await _dispatcher_publishes(top, proof_data)
+    published = await _dispatcher_publishes(feed, top, proof_data)
     announced = _ripple_announces(top, proof_data)
     assert shown == published == announced, (
         f"{label}: SocialService's feed {'shows' if shown else 'hides'} this "
@@ -128,9 +145,14 @@ async def test_the_feed_the_dispatcher_and_the_ripple_agree(label, top, proof_da
 
 
 @pytest.mark.parametrize("label,top,proof_data", _TABLE, ids=[r[0] for r in _TABLE])
-def test_the_dispatchers_predicate_is_the_feeds(label, top, proof_data):
+async def test_the_public_feeds_door_reads_as_the_feed_does(feed, label, top, proof_data):
+    """The feed engine's ingest, handed the item directly as the dispatcher's
+    params, keeps exactly what SocialService's feed shows."""
     item = _item(top, proof_data)
-    assert declares_non_public(item) is (not SocialService._is_public_item(item)), label
+    await feed.ingest(action="send_message", actor=_OWNER,
+                      detail={"service": "social", "params": item})
+    kept = len(await feed.stored()) == 1
+    assert kept is SocialService._is_public_item(item), label
 
 
 def test_only_the_plain_word_public_is_public():
@@ -142,11 +164,10 @@ def test_only_the_plain_word_public_is_public():
 
 
 @pytest.mark.parametrize("visibility", [None, " public"])
-async def test_the_measured_shares_reach_no_feed(visibility):
+async def test_the_measured_shares_reach_no_feed(feed, visibility):
     """THE REPRODUCTION, through the real SocialService: each was published
     as one public row while get_feed surfaced none."""
     d = ServiceDispatcher({})
-    feed = _Feed()
     d._feed_engine = feed
 
     async def _quiet(*a, **k):
@@ -160,13 +181,13 @@ async def test_the_measured_shares_reach_no_feed(visibility):
         "sharer": _OWNER, "proof_type": "achievement",
         "proof_data": {"visibility": visibility, "description": "finished"},
     })
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    await feed.settle()
     assert len(social._feed_items) == 1, "premise: the share was stored"
     assert await social.get_feed(_OWNER) == []
-    assert feed.published == [], (
-        f"a share SocialService hides was published to the public feed: "
-        f"{feed.published}")
+    assert feed.handed == 1, "premise: the dispatcher handed the share to the feed"
+    stored = await feed.stored()
+    assert stored == [], (
+        f"a share SocialService hides was published to the public feed: {stored}")
 
 
 async def test_a_share_the_service_refuses_leaves_nothing_in_the_feed():

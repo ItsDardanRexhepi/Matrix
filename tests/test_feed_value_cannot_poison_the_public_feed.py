@@ -5,13 +5,20 @@ The first domain-19 finding that is NOT about the platform's own money. It is a
 PUBLIC surface an unauthenticated party can break for everyone, and the damage
 persists in storage rather than ending with the request.
 
-MECHANISM. `ServiceDispatcher`'s feed-ingest block reads an amount-like key
-straight out of `params` — the request body — and passes it to
+MECHANISM, AS FOUND. `ServiceDispatcher`'s feed-ingest block read an
+amount-like key straight out of `params` — the request body — and passed it to
 `SocialFeedEngine.ingest(value_usd=...)` with no validation. `"Infinity"` is a
 PLAIN JSON STRING that `float()` accepts. Stored as `inf`, it makes
 `web.json_response` emit a bare `Infinity` token, and **the entire response
 document fails `JSON.parse`** — not one row, the whole feed, for every strict
 client (`web/social.html`, the MTRX Swift `JSONDecoder`).
+
+WHAT THE BLOCK READS NOW. Not `params`: `_feed_value_of(result)`, the figure
+the service's own result says moved (tests/test_the_feed_value_is_what_moved.py
+drives that through `execute`). The sanitiser is still load-bearing, because a
+result can echo a caller-written figure — a service that records the price it
+was handed returns that price — so a request-borne `"Infinity"` can still
+arrive, one hop later.
 
 WHY PERSISTENCE MAKES IT WORSE THAN A CRASH. The poisoned value is STORED, so
 the feed stays broken until someone deletes the row; and `ranked_score` is
@@ -24,7 +31,7 @@ hydration, which lets the feed recover with no migration.
 §AK.4, satisfied before the chokepoint was proposed rather than after:
 
     writers of value_usd into the store   1   (feed_engine INSERT)
-    real callers of ingest()              1   (service_dispatcher:1343)
+    real callers of ingest()              1   (ServiceDispatcher.execute)
     writers of event.ranked_score         1   (feed_engine:328)
     ------------------------------------------
     paths guarded                         all of them, shown

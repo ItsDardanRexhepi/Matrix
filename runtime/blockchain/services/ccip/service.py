@@ -1,18 +1,24 @@
 """
-Cross-chain messaging and bridging via CCIP, Hyperlane, Wormhole, Axelar, Stargate.
+Cross-chain bridging via CCIP and Stargate; cross-chain messages refused.
 
-This service wires the major cross-chain interoperability protocols to the
-platform. Every method follows the same shape:
+This service wires cross-chain interoperability protocols to the platform.
+The two token bridges follow the same shape:
 
-1. CREDENTIAL-GATED gate FIRST — if the specific router/gateway/mailbox
-   address (or the RPC) this method needs is missing or a placeholder, the
-   method returns the canonical ``not_deployed_response`` naming the EXACT
-   missing config key so ``CREDENTIALS_NEEDED.md`` can map it.
+1. CREDENTIAL-GATED gate FIRST — if the specific router address (or the
+   RPC) the method needs is missing or a placeholder, the method returns the
+   canonical ``not_deployed_response`` naming the EXACT missing config key so
+   ``CREDENTIALS_NEEDED.md`` can map it.
 2. REAL path — once the operator has populated the relevant
    ``services.ccip.*`` config keys, the method performs the protocol's REAL
-   on-chain call (router.ccipSend / mailbox.dispatch / core.publishMessage /
-   gateway.callContract / stargate router) signed by the **platform
-   paymaster account** via ``Web3Manager.send_transaction`` (gas-sponsored).
+   on-chain call (router.ccipSend / stargate router.swap) signed by the
+   **platform paymaster account** via ``Web3Manager.send_transaction``
+   (gas-sponsored). Neither carries a message: CCIP's data and extraArgs and
+   Stargate's payload are empty.
+
+The four message methods (``send_cross_chain_message``, ``bridge_hyperlane``,
+``bridge_wormhole``, ``bridge_axelar``) are refused before anything is built
+or signed: each sent, from the platform's wallet, bytes the request wrote,
+and the receiving chain reads the platform as their sender.
 
 Non-custodial: all on-chain WRITES are signed by the platform paymaster
 account only. Bridging a TOKEN moves value, so token bridges operate on the
@@ -26,9 +32,6 @@ Config keys (read from ``services.ccip``):
     - ``ccip_router_address``      — Chainlink CCIP Router (defaults to the
                                      known Base-Sepolia router, marked
                                      UNVERIFIED until confirmed on-chain)
-    - ``hyperlane_mailbox``        — Hyperlane Mailbox address (REQUIRED)
-    - ``wormhole_core``            — Wormhole core bridge address (REQUIRED)
-    - ``axelar_gateway``           — Axelar gateway address (REQUIRED)
     - ``stargate_router``          — Stargate router address (REQUIRED)
     - ``link_token``               — LINK token addr for CCIP fee (optional;
                                      when unset the fee is paid in native gas)
@@ -119,54 +122,6 @@ _CCIP_ROUTER_ABI: list[dict] = [
     },
 ]
 
-# Hyperlane Mailbox.dispatch — recipient is bytes32 (left-padded address).
-# Verified against hyperlane-xyz/hyperlane-monorepo IMailbox.
-_HYPERLANE_MAILBOX_ABI: list[dict] = [
-    {
-        "type": "function",
-        "name": "dispatch",
-        "stateMutability": "payable",
-        "inputs": [
-            {"name": "destinationDomain", "type": "uint32"},
-            {"name": "recipientAddress", "type": "bytes32"},
-            {"name": "messageBody", "type": "bytes"},
-        ],
-        "outputs": [{"name": "", "type": "bytes32"}],
-    },
-]
-
-# Wormhole core bridge publishMessage — emits a VAA-eligible LogMessagePublished.
-# Verified against wormhole-foundation IWormhole.
-_WORMHOLE_CORE_ABI: list[dict] = [
-    {
-        "type": "function",
-        "name": "publishMessage",
-        "stateMutability": "payable",
-        "inputs": [
-            {"name": "nonce", "type": "uint32"},
-            {"name": "payload", "type": "bytes"},
-            {"name": "consistencyLevel", "type": "uint8"},
-        ],
-        "outputs": [{"name": "sequence", "type": "uint64"}],
-    },
-]
-
-# Axelar gateway callContract — general-message-passing entrypoint.
-# Verified against axelarnetwork/axelar-cgp-solidity IAxelarGateway.
-_AXELAR_GATEWAY_ABI: list[dict] = [
-    {
-        "type": "function",
-        "name": "callContract",
-        "stateMutability": "nonpayable",
-        "inputs": [
-            {"name": "destinationChain", "type": "string"},
-            {"name": "destinationContractAddress", "type": "string"},
-            {"name": "payload", "type": "bytes"},
-        ],
-        "outputs": [],
-    },
-]
-
 # Stargate router send. UNVERIFIED — Stargate has two live generations
 # (V1 ``swap(...)`` and V2 ``sendToken(...)``) whose signatures differ; the
 # operator must confirm which router generation ``stargate_router`` points at
@@ -230,24 +185,10 @@ class CrossChainMessagingService:
             return _CCIP_ROUTER_BASE_SEPOLIA
         return addr
 
-    @staticmethod
-    def _to_bytes(value: Any) -> bytes:
-        """Coerce a hex string / bytes / None into ``bytes`` (empty by default)."""
-        if value is None or value == "":
-            return b""
-        if isinstance(value, (bytes, bytearray)):
-            return bytes(value)
-        if isinstance(value, str):
-            s = value[2:] if value.startswith("0x") else value
-            try:
-                return bytes.fromhex(s)
-            except ValueError:
-                # Treat as a UTF-8 message body when not valid hex.
-                return value.encode("utf-8")
-        return bytes(value)
-
     def _addr_to_bytes32(self, address: str) -> bytes:
-        """Left-pad a 20-byte address into a bytes32 (Hyperlane recipient form)."""
+        """Left-pad a 20-byte address into 32 bytes: the abi-encoded address a CCIP
+        receiver field carries. Checksumming it first refuses anything that is not
+        an address."""
         w3 = self._web3.w3
         raw = bytes.fromhex(w3.to_checksum_address(address)[2:])
         return raw.rjust(32, b"\x00")
@@ -271,15 +212,31 @@ class CrossChainMessagingService:
 
         Params: ``destination_chain_selector`` (uint64 CCIP selector),
         ``receiver`` (dest address), ``token`` (ERC-20 on this chain),
-        ``amount`` (uint, base units), optional ``data`` (hex), optional
-        ``fee_token`` (LINK addr; native gas when unset).
+        ``amount`` (uint, base units). The fee token is the configured
+        ``link_token`` (native gas when unset).
 
-        On-chain WRITE signed by the platform paymaster (gas-sponsored).
+        On-chain WRITE signed by the platform paymaster (gas-sponsored). It
+        carries no message: the ``data`` and ``extraArgs`` of the
+        EVM2AnyMessage are empty. A request that supplies either is refused
+        before anything is built — the receiver's ``ccipReceive`` would read
+        those bytes as sent by the platform's wallet (the refusal the four
+        message methods below give).
         """
         selector = params.get("destination_chain_selector") or params.get("dest_selector")
         receiver = params.get("receiver") or params.get("to")
         token = params.get("token")
         amount = params.get("amount")
+
+        if params.get("data") or params.get("extra_args"):
+            from runtime.access_policy import REFUSED_ON_REQUEST
+            return {
+                "status": "refused",
+                "refused": True,
+                "service": self.service_name,
+                "method": "bridge_token_ccip",
+                "error": REFUSED_ON_REQUEST[(self.service_name, "send_cross_chain_message")],
+                "signed": False,
+            }
 
         # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
         if not self._web3.available:
@@ -316,10 +273,10 @@ class CrossChainMessagingService:
             receiver_bytes = self._addr_to_bytes32(receiver)
             message = (
                 receiver_bytes,                          # receiver (abi-encoded address)
-                self._to_bytes(params.get("data")),      # data
+                b"",                                     # data: no message
                 [(w3.to_checksum_address(token), int(amount))],  # tokenAmounts
                 fee_token,                               # feeToken
-                self._to_bytes(params.get("extra_args")),  # extraArgs
+                b"",                                     # extraArgs: the router's default
             )
 
             # Size the fee so we can attach native value when paying in gas.
@@ -363,317 +320,41 @@ class CrossChainMessagingService:
                 "error_type": type(exc).__name__,
             }
 
+    # ── The messages: refused ─────────────────────────────────────────
+    #
+    # send_cross_chain_message (CCIP), bridge_hyperlane (Mailbox.dispatch),
+    # bridge_wormhole (publishMessage) and bridge_axelar (callContract) each
+    # signed, with the platform paymaster key and from the platform wallet, a
+    # message whose bytes the request wrote (``data`` / ``message`` /
+    # ``payload``), to a receiver the request named where the protocol has one.
+    # Every one of those protocols hands the receiving contract the SENDER of
+    # the message, and the sender was the platform's wallet: any contract that
+    # trusts the platform's address on another chain would act on words a
+    # request composed. None of the four moves a token; a message is all they
+    # send. Each is answered with a refusal before anything is built or signed
+    # (runtime/access_policy.py REFUSED_ON_REQUEST refuses them at every door
+    # too). bridge_token_ccip below still bridges the platform's own tokens and
+    # carries no message.
+
     async def send_cross_chain_message(self, **params: Any) -> dict:
-        """Send an arbitrary cross-chain message via Chainlink CCIP ``ccipSend``.
-
-        Like ``bridge_token_ccip`` but with no token transfer — a pure
-        ``EVM2AnyMessage`` data payload. Params: ``destination_chain_selector``,
-        ``receiver``, ``data`` (hex or utf-8), optional ``fee_token``.
-
-        On-chain WRITE signed by the platform paymaster (gas-sponsored).
-        """
-        selector = params.get("destination_chain_selector") or params.get("dest_selector")
-        receiver = params.get("receiver") or params.get("to")
-
-        # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
-        if not self._web3.available:
-            return not_deployed_response(self.service_name, extra={
-                "method": "send_cross_chain_message",
-                "missing": "blockchain.rpc_url",
-                "protocol": "Chainlink CCIP",
-            })
-        router_addr = self._ccip_router()
-        if is_placeholder_value(router_addr):
-            return not_deployed_response(self.service_name, extra={
-                "method": "send_cross_chain_message",
-                "missing": "services.ccip.ccip_router_address",
-                "protocol": "Chainlink CCIP",
-            })
-        if selector is None or is_placeholder_value(receiver):
-            return not_deployed_response(self.service_name, extra={
-                "method": "send_cross_chain_message",
-                "missing": "destination_chain_selector / receiver (call params)",
-                "protocol": "Chainlink CCIP",
-            })
-
-        # ── REAL path: Router.ccipSend with empty tokenAmounts ────────
-        try:
-            w3 = self._web3.w3
-            router = self._web3.load_contract(router_addr, _CCIP_ROUTER_ABI)
-
-            fee_token_cfg = self._cfg().get("link_token", "")
-            fee_token = (
-                w3.to_checksum_address(fee_token_cfg)
-                if not is_placeholder_value(fee_token_cfg)
-                else "0x0000000000000000000000000000000000000000"
-            )
-            message = (
-                self._addr_to_bytes32(receiver),
-                self._to_bytes(params.get("data")),
-                [],  # no token transfer — message only
-                fee_token,
-                self._to_bytes(params.get("extra_args")),
-            )
-
-            try:
-                fee = router.functions.getFee(int(selector), message).call()
-            except Exception as fee_exc:  # noqa: BLE001
-                logger.warning("CCIP getFee failed, defaulting to 0: %s", fee_exc)
-                fee = 0
-            native_value = int(fee) if fee_token == "0x0000000000000000000000000000000000000000" else 0
-
-            tx = router.functions.ccipSend(int(selector), message).build_transaction({
-                "from": self._web3.get_account().address,
-                "chainId": self._web3.chain_id,
-                "value": native_value,
-            })
-
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "send_cross_chain_message",
-                "protocol": "Chainlink CCIP",
-                "router": router_addr,
-                "destination_chain_selector": int(selector),
-                "receiver": w3.to_checksum_address(receiver),
-                "fee_paid": int(fee),
-                "fee_token": fee_token,
-                "tx_hash": tx_hash,
-                "explorer": self._web3.explorer_url(tx_hash),
-                "gas_paid_by": "platform_paymaster",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("send_cross_chain_message on-chain call failed: %s", exc)
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "send_cross_chain_message",
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            }
-
-    # ── Hyperlane ─────────────────────────────────────────────────────
+        """Refused: the platform's key sends no cross-chain message a request writes."""
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "send_cross_chain_message")
 
     async def bridge_hyperlane(self, **params: Any) -> dict:
-        """Dispatch a cross-chain message via Hyperlane ``Mailbox.dispatch``.
-
-        Params: ``destination_domain`` (uint32 Hyperlane domain id),
-        ``recipient`` (dest address — padded to bytes32), ``message`` /
-        ``data`` (body, hex or utf-8).
-
-        On-chain WRITE signed by the platform paymaster (gas-sponsored).
-        Requires ``services.ccip.hyperlane_mailbox`` (no canonical default —
-        the Mailbox address is chain-specific).
-        """
-        domain = params.get("destination_domain") or params.get("dest_domain")
-        recipient = params.get("recipient") or params.get("to")
-        mailbox_addr = self._cfg().get("hyperlane_mailbox", "")
-
-        # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
-        if not self._web3.available:
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_hyperlane",
-                "missing": "blockchain.rpc_url",
-                "protocol": "Hyperlane",
-            })
-        if is_placeholder_value(mailbox_addr):
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_hyperlane",
-                "missing": "services.ccip.hyperlane_mailbox",
-                "protocol": "Hyperlane",
-            })
-        if domain is None or is_placeholder_value(recipient):
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_hyperlane",
-                "missing": "destination_domain / recipient (call params)",
-                "protocol": "Hyperlane",
-            })
-
-        # ── REAL path: Mailbox.dispatch(domain, recipient32, body) ────
-        try:
-            w3 = self._web3.w3
-            mailbox = self._web3.load_contract(mailbox_addr, _HYPERLANE_MAILBOX_ABI)
-            recipient32 = self._addr_to_bytes32(recipient)
-            body = self._to_bytes(params.get("message") or params.get("data"))
-
-            tx = mailbox.functions.dispatch(
-                int(domain), recipient32, body
-            ).build_transaction({
-                "from": self._web3.get_account().address,
-                "chainId": self._web3.chain_id,
-            })
-
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "bridge_hyperlane",
-                "protocol": "Hyperlane",
-                "mailbox": w3.to_checksum_address(mailbox_addr),
-                "destination_domain": int(domain),
-                "recipient": w3.to_checksum_address(recipient),
-                "tx_hash": tx_hash,
-                "explorer": self._web3.explorer_url(tx_hash),
-                "gas_paid_by": "platform_paymaster",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("bridge_hyperlane on-chain call failed: %s", exc)
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "bridge_hyperlane",
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            }
-
-    # ── Wormhole ──────────────────────────────────────────────────────
+        """Refused: the platform's key sends no cross-chain message a request writes."""
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "bridge_hyperlane")
 
     async def bridge_wormhole(self, **params: Any) -> dict:
-        """Publish a cross-chain message via Wormhole core ``publishMessage``.
-
-        Params: ``payload`` (bytes, hex or utf-8), optional ``nonce`` (uint32,
-        default 0), optional ``consistency_level`` (uint8, default 1 ==
-        finalized). This emits the ``LogMessagePublished`` event a Guardian set
-        signs into a VAA off-chain.
-
-        On-chain WRITE signed by the platform paymaster (gas-sponsored).
-        Requires ``services.ccip.wormhole_core``.
-        """
-        core_addr = self._cfg().get("wormhole_core", "")
-        payload = params.get("payload") or params.get("data")
-
-        # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
-        if not self._web3.available:
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_wormhole",
-                "missing": "blockchain.rpc_url",
-                "protocol": "Wormhole",
-            })
-        if is_placeholder_value(core_addr):
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_wormhole",
-                "missing": "services.ccip.wormhole_core",
-                "protocol": "Wormhole",
-            })
-        if is_placeholder_value(payload):
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_wormhole",
-                "missing": "payload (call params)",
-                "protocol": "Wormhole",
-            })
-
-        # ── REAL path: core.publishMessage(nonce, payload, consistency) ─
-        try:
-            w3 = self._web3.w3
-            core = self._web3.load_contract(core_addr, _WORMHOLE_CORE_ABI)
-            nonce = int(params.get("nonce") or 0)
-            consistency = int(params.get("consistency_level") or 1)
-            payload_bytes = self._to_bytes(payload)
-
-            tx = core.functions.publishMessage(
-                nonce, payload_bytes, consistency
-            ).build_transaction({
-                "from": self._web3.get_account().address,
-                "chainId": self._web3.chain_id,
-            })
-
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "bridge_wormhole",
-                "protocol": "Wormhole",
-                "core_bridge": w3.to_checksum_address(core_addr),
-                "nonce": nonce,
-                "consistency_level": consistency,
-                "tx_hash": tx_hash,
-                "explorer": self._web3.explorer_url(tx_hash),
-                "gas_paid_by": "platform_paymaster",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("bridge_wormhole on-chain call failed: %s", exc)
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "bridge_wormhole",
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            }
-
-    # ── Axelar ────────────────────────────────────────────────────────
+        """Refused: the platform's key sends no cross-chain message a request writes."""
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "bridge_wormhole")
 
     async def bridge_axelar(self, **params: Any) -> dict:
-        """Call a contract cross-chain via Axelar ``gateway.callContract``.
-
-        Params: ``destination_chain`` (Axelar chain name, e.g. "ethereum"),
-        ``destination_contract`` (dest contract address as a string),
-        ``payload`` (bytes, hex or utf-8).
-
-        On-chain WRITE signed by the platform paymaster (gas-sponsored).
-        Requires ``services.ccip.axelar_gateway``. Note: Axelar gas for
-        execution on the destination chain is normally paid to the Axelar Gas
-        Service separately; this method emits the GMP call only.
-        """
-        gateway_addr = self._cfg().get("axelar_gateway", "")
-        dest_chain = params.get("destination_chain") or params.get("dest_chain")
-        dest_contract = params.get("destination_contract") or params.get("dest_contract")
-
-        # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
-        if not self._web3.available:
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_axelar",
-                "missing": "blockchain.rpc_url",
-                "protocol": "Axelar",
-            })
-        if is_placeholder_value(gateway_addr):
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_axelar",
-                "missing": "services.ccip.axelar_gateway",
-                "protocol": "Axelar",
-            })
-        if is_placeholder_value(dest_chain) or is_placeholder_value(dest_contract):
-            return not_deployed_response(self.service_name, extra={
-                "method": "bridge_axelar",
-                "missing": "destination_chain / destination_contract (call params)",
-                "protocol": "Axelar",
-            })
-
-        # ── REAL path: gateway.callContract(chain, contract, payload) ─
-        try:
-            w3 = self._web3.w3
-            gateway = self._web3.load_contract(gateway_addr, _AXELAR_GATEWAY_ABI)
-            payload_bytes = self._to_bytes(params.get("payload") or params.get("data"))
-
-            tx = gateway.functions.callContract(
-                str(dest_chain), str(dest_contract), payload_bytes
-            ).build_transaction({
-                "from": self._web3.get_account().address,
-                "chainId": self._web3.chain_id,
-            })
-
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "bridge_axelar",
-                "protocol": "Axelar",
-                "gateway": w3.to_checksum_address(gateway_addr),
-                "destination_chain": str(dest_chain),
-                "destination_contract": str(dest_contract),
-                "tx_hash": tx_hash,
-                "explorer": self._web3.explorer_url(tx_hash),
-                "gas_paid_by": "platform_paymaster",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("bridge_axelar on-chain call failed: %s", exc)
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "bridge_axelar",
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            }
+        """Refused: the platform's key sends no cross-chain message a request writes."""
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "bridge_axelar")
 
     # ── Stargate ──────────────────────────────────────────────────────
 

@@ -1,21 +1,17 @@
 """
-Component Deployer — installs approved components into the live runtime.
+Component Deployer — writes approved components into the runtime service directory.
 
 Only deploys components that have:
     1. Passed sanitization (is_clean == True)
     2. Been approved by Dardan (ApprovalStatus.APPROVED)
 
-Those two are the guards ``deploy`` checks. A third this docstring used to list
-— "a valid manifest entry" — is checked nowhere here: this module does not read
-the manifest, and a bundle with no entry installs. The manifest's own guard
-(``BridgeManifest.update_deployment``) is what refuses to RECORD an unapproved
-component as deployed.
+It does not look for a manifest entry: bridge/manifest.py is not imported here.
 
-Deployment writes the component's files into the runtime service directory and
-stamps ``_deployment.json``. It does not register anything with the
-ServiceRegistry and it does not attest on-chain: no EAS call is made here, and
-``DeploymentResult.attested`` says so (it used to be set True over a sha256
-of the metadata presented as an attestation UID).
+Deployment writes the component's files, and a _deployment.json, into the
+runtime service directory, and hashes a record of the deployment with sha256.
+It does not add the component to the service registry, whose map of services
+is fixed in its source, and it signs, sends and attests nothing: the result's
+`attested` stays False, and the hash is its `record_hash`.
 """
 
 from __future__ import annotations
@@ -46,8 +42,9 @@ class DeploymentResult:
     deployed_at: float = field(default_factory=time.time)
     target_path: str = ""
     error: str = ""
-    attested: bool = False
+    attested: bool = False         # nothing in the bridge attests
     attestation_uid: str = ""
+    record_hash: str = ""          # sha256 of the deployment's record
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,18 +57,19 @@ class DeploymentResult:
             "error": self.error,
             "attested": self.attested,
             "attestation_uid": self.attestation_uid,
+            "record_hash": self.record_hash,
         }
 
 
 class ComponentDeployer:
-    """Deploys approved, sanitized components into the Matrix runtime.
+    """Writes approved, sanitized components into the runtime service directory.
 
     Usage::
 
         deployer = ComponentDeployer(runtime_dir="runtime/blockchain/services")
         result = await deployer.deploy(bundle, sanitizer_result, approval)
         if result.success:
-            # Component is live
+            # The component's files are written; the service registry does not list it
             ...
     """
 
@@ -89,7 +87,7 @@ class ComponentDeployer:
         sanitizer_result: SanitizationResult,
         approval: ApprovalDecision,
     ) -> DeploymentResult:
-        """Deploy a component to the runtime.
+        """Write a component's files into the runtime service directory.
 
         Guards:
             - Sanitizer must have passed (is_clean == True)
@@ -157,15 +155,15 @@ class ComponentDeployer:
             target_path=str(target_path),
         )
 
-        # NOT ATTESTED. This called `_attest_deployment`, set `attested = True`
-        # and stored its return value as the attestation UID — a sha256 of the
-        # metadata dict, computed locally, with no EAS call anywhere. The
-        # owner's notification then said "EAS Attested: True". Nothing is
-        # attested here, so the result says `attested: False` and carries no
-        # UID; the log says the attestation was not made.
-        logger.info(
-            "Deployment of %s was NOT attested on-chain: this deployer makes no "
-            "EAS call.", bundle.component_name)
+        # Hash the deployment's record. Nothing is attested: `attested` stays
+        # False and `attestation_uid` empty.
+        try:
+            result.record_hash = await self._hash_deployment_record(bundle, deployment_id)
+        except Exception as exc:
+            logger.warning(
+                "Hashing the deployment record failed for %s (non-blocking): %s",
+                bundle.component_name, exc,
+            )
 
         # Notify the owner (SMS, best-effort) — Telegram is gone.
         if self.notifier:
@@ -214,22 +212,23 @@ class ComponentDeployer:
 
         return component_dir
 
-    async def _attest_deployment(
+    async def _hash_deployment_record(
         self,
         bundle: ExportBundle,
         deployment_id: str,
     ) -> str:
-        """A LOCAL FINGERPRINT of the deployment, not an attestation.
+        """Hash a record of this deployment with sha256.
 
-        No EAS contract is called. The value is a sha256 of the deployment
-        metadata — reproducible, and useful for matching a record to a bundle,
-        but nobody else has seen it and nothing on-chain carries it. ``deploy``
-        no longer presents it as an attestation UID; it is kept for callers
-        that want the fingerprint by name.
+        The record names the bridge's schema constant (empty) and the NeoSafe
+        address as the attester an attestation would use, but nothing signs,
+        sends or attests it: no EAS contract is called.
+
+        Returns:
+            The record's sha256 as 0x-prefixed hex.
         """
         from bridge import EAS_CONTRACT, EAS_SCHEMA_UID, NEOSAFE_ADDRESS
 
-        # Build attestation data
+        # The record an attestation would carry
         attestation_data = {
             "schema_uid": EAS_SCHEMA_UID,
             "attester": NEOSAFE_ADDRESS,
@@ -241,13 +240,13 @@ class ComponentDeployer:
             "timestamp": int(time.time()),
         }
 
-        # Deterministic UID from attestation data
+        # The record's sha256
         uid_hash = hashlib.sha256(
             json.dumps(attestation_data, sort_keys=True).encode()
         ).hexdigest()
 
         logger.info(
-            "EAS attestation recorded: schema=%s, attester=%s, uid=%s",
+            "Deployment record hashed, not attested: schema=%s, attester=%s, hash=%s",
             EAS_SCHEMA_UID, NEOSAFE_ADDRESS, uid_hash[:16],
         )
 

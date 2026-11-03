@@ -100,7 +100,7 @@ def test_no_model_catalogue_is_hardcoded_anywhere_in_the_module():
 def test_the_wizard_offers_the_listing_but_still_accepts_a_typed_id():
     import ast
     import pathlib
-    src = (pathlib.Path(__file__).resolve().parent.parent / "setup.py").read_text()
+    src = (pathlib.Path(__file__).resolve().parent.parent / "setup" / "wizard.py").read_text()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "_choose_model")
     body = ast.get_source_segment(src, fn) or ""

@@ -93,8 +93,25 @@ version = { attr = "runtime.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["cli*", "runtime*", "gateway*", "hivemind*", "contracts*", "scripts*", "sdk*"]
+# setup* is the wizard and its channel configurators: `matrix setup` runs them
+# from an installed package (cli/home.py). agents, web, extensions and skills
+# are folders the gateway reads from its working folder: the agents' identity
+# prompts, the pages, the component registry and the skills
+# (runtime/shipped.py). An install runs it in the user's folder, which has
+# none of them, so the wheel carries them beside the packages, at the paths a
+# clone has them.
+include = ["cli*", "runtime*", "gateway*", "hivemind*", "contracts*", "scripts*", "sdk*", "setup*",
+           "agents*", "web*", "extensions*", "skills*"]
 exclude = ["tests*", "data*", "memory*", "site*", ".venv*"]
+
+[tool.setuptools.package-data]
+# Only Python files are packaged without this. Each entry is a file the
+# gateway reads: the agents' identity prompts, the pages it serves, the
+# component registry, and the Apple root the purchase routes verify against.
+"agents" = ["*/identity.md"]
+"web" = ["*.html", "*.js"]
+"extensions" = ["registry.json"]
+"gateway" = ["certs/*.pem"]
 
 # ── Pytest ──────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

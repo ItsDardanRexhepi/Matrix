@@ -81,3 +81,25 @@ def test_deletion_is_not_advertised_anywhere_in_the_registry():
     assert not offenders, (
         f"components still advertising execute_deletion: {offenders}"
     )
+
+
+def test_no_action_every_door_refuses_is_advertised():
+    """[control] An action every door refuses is the same lie: the client offers
+    what the platform will not run. Twelve were advertised under components
+    marked available: the attestation service's create, revoke and batch, the
+    RetroPGF application and the KYC credential (statements the request wrote,
+    signed with the platform's key), a token-bound account's execute and the
+    four cross-chain message sends (a call or a message the request composed),
+    and a wallet recovery and a session key (the platform's wallet handing an
+    account the request names to a new owner or key). Read from
+    runtime/access_policy.py REFUSED_ON_REQUEST, so the next refusal is held
+    to this too; the catalog keeps them, marked unavailable, so a caller who
+    asks hears the refusal rather than a 404."""
+    from runtime.access_policy import refused_on_request
+
+    offered = [f"{component['id']}: {action}" for component in _components()
+               for action in component.get("gateway_actions", []) or []
+               if refused_on_request(action)]
+    assert not offered, (
+        "extensions/registry.json advertises actions every door refuses:\n  "
+        + "\n  ".join(offered))

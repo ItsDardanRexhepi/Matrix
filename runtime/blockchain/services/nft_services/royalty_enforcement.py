@@ -20,6 +20,7 @@ from runtime.blockchain.services.nft_services._guards import (
     require_finite_amount,
     require_finite_bps,
 )
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ class RoyaltyEnforcement:
         )
         if _existing is not None:
             _owner = str(_existing.get("set_by") or "")
-            _may_change = bool(_set_by) and _owner.lower() == _set_by.lower()
+            _may_change = bool(_set_by) and same_caller(_owner, _set_by)
             if not _may_change:
                 raise PermissionError(
                     f"royalty for {collection} #{token_id} was configured by "
@@ -238,9 +239,10 @@ class RoyaltyEnforcement:
             # 22-A. Written at both levels for the same reason 17-J gives:
             # WHO, and separately HOW WE KNOW. `set_by: ""` alone cannot
             # distinguish "nothing was threaded" from "we did not look". The
-            # label "authenticated" says only that a value was threaded
-            # (ServiceDispatcher, 17-J); on the capability route with no
-            # session that value is one the caller wrote.
+            # label is the dispatcher's (ServiceDispatcher, 17-J): "operator"
+            # when the operator key's request named the identity with no
+            # session — on the capability route, a value that request wrote —
+            # and "authenticated" for any other threaded value.
             "set_by": _set_by,
             "set_by_source": _set_by_source,
         }

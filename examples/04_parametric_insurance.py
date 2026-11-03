@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-04 — Parametric Insurance: Weather-Based Crop Insurance on Base Sepolia
+04 — Parametric Insurance: Weather-Based Crop Insurance
 
-Demonstrates Insurance (Component 13) and Oracle Gateway (Component 11):
+Calls the insurance service and the oracle gateway through ServiceDispatcher:
 
-  1. Creates a parametric insurance policy for crop protection
-  2. Sets trigger conditions (e.g., rainfall below 50mm in a month)
-  3. Simulates an oracle weather data feed
-  4. Files a claim, which the insurance service decides against oracle data
-  5. Shows what the service recorded for it — and what it did not do
+  1. create_insurance: a crop policy for Fresno, CA (5 ETH cover, 0.25 ETH premium)
+  2. oracle_request: the weather oracle's reading for the same place
+  3. file_insurance_claim: a claim against the policy, by its holder
+  4. get_insurance_policy: the policy's record afterwards
 
-Parametric insurance DECIDES a claim from data rather than by an adjuster:
-the insurance service checks the trigger against the oracle and fails closed.
-It does not PAY one. An approved claim is a reserve-ledger entry — the
-service's own record says `value_moved: False` and that no funds were sent —
-so this example prints what the service returned instead of a payout.
+Each step prints what the service answered, and a step counts as done only
+when the dispatcher reports that it happened (its call_outcome is "success").
+A claim is judged against oracle data the insurance service fetches itself,
+never against data the claimant sends, and it fails closed when no trigger or
+no oracle answer is available. An approved claim is the service's decision
+and an entry against its reserve: it reports a payout amount and sends no
+funds to the holder. Until the insurance contract is deployed, create_insurance
+answers ``not_deployed`` and the claim and the policy read are skipped. The
+weather reading needs a weather provider configured for the oracle gateway.
 
 Usage:
     python examples/04_parametric_insurance.py
@@ -30,14 +33,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
-
-CYAN = "\033[96m"; GREEN = "\033[92m"; YELLOW = "\033[93m"
-RED = "\033[91m"; BOLD = "\033[1m"; DIM = "\033[2m"; RESET = "\033[0m"
-
-def step(n, text):  print(f"\n{CYAN}{BOLD}[Step {n}]{RESET} {text}")
-def ok(text):       print(f"  {GREEN}+{RESET} {text}")
-def warn(text):     print(f"  {YELLOW}!{RESET} {text}")
-def fail(text):     print(f"  {RED}x{RESET} {text}")
+from examples._steps import BOLD, CYAN, RESET, Steps, fail, ok, shown, step
 
 
 def load_config() -> dict:
@@ -49,203 +45,69 @@ def load_config() -> dict:
         return json.load(f)
 
 
+FRESNO = "36.7378,-119.7871"
+
+
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
   The Matrix Example 04: Parametric Crop Insurance
 {'=' * 60}{RESET}
 
-  Weather-based insurance whose claim is decided by oracle
-  data — recorded against the reserve, not paid out.
+  A policy whose claim is approved when the oracle's rainfall reading for
+  the insured place falls below the threshold the policy sets. The approval
+  is recorded against the reserve; no funds are sent.
 """)
 
     config = load_config()
     dispatcher = ServiceDispatcher(config)
-    bc = config.get("blockchain", {})
-    farmer = bc.get("demo_wallet_address", "0xFarmer")
+    farmer = config.get("blockchain", {}).get("demo_wallet_address", "0xFarmer")
+    steps = Steps(dispatcher)
 
-    # ── Step 1: Create insurance policy ─────────────────────────────
-    step(1, "Creating parametric insurance policy...")
-    print(f"  {DIM}Type: Crop drought protection")
-    print(f"  Coverage: 5 ETH | Premium: 0.25 ETH")
-    print(f"  Trigger: Monthly rainfall < 50mm in Fresno, CA{RESET}")
-
+    step(1, "Creating a crop policy: 5 ETH cover for 180 days, 0.25 ETH premium...")
+    policy = await steps.run("create the policy", "create_insurance", {
+        "holder": farmer,
+        "policy_type": "crop",
+        "coverage": {
+            "amount": 5.0,
+            "duration_days": 180,
+            "location": FRESNO,
+            "trigger": {"metric": "rainfall_mm", "below": 50.0, "period": "monthly"},
+        },
+        "premium": 0.25,
+    })
     policy_id = None
-    try:
-        result = await dispatcher.execute(
-            action="create_insurance",
-            params={
-                "policy_type": "parametric_crop",
-                "policyholder": farmer,
-                "premium_eth": 0.25,
-                "coverage_amount_eth": 5.0,
-                "coverage_period_days": 180,
-                "trigger_conditions": {
-                    "type": "weather",
-                    "metric": "rainfall_mm",
-                    "operator": "less_than",
-                    "threshold": 50.0,
-                    "location": {"lat": 36.7378, "lon": -119.7871, "name": "Fresno, CA"},
-                    "measurement_period": "monthly",
-                },
-                "oracle_source": "chainlink_weather",
-                "auto_payout": True,
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            policy = data["result"]
-            policy_id = policy.get("policy_id", policy.get("id", "N/A"))
-            ok(f"Policy created: {policy_id}")
-            ok(f"Policyholder: {farmer}")
-            ok(f"Premium paid: 0.25 ETH")
-            ok(f"Coverage: 5.0 ETH")
-            ok(f"Period: 180 days")
-            ok(f"Auto-payout: enabled")
-            if policy.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{policy['tx_hash']}")
-        else:
-            warn(f"Policy creation: {data.get('error', 'check config')}")
-            policy_id = "demo-policy-001"
-    except Exception as e:
-        warn(f"Policy creation: {e}")
-        policy_id = "demo-policy-001"
+    if policy is not None:
+        policy_id = policy.get("policy_id") or policy.get("id")
+        ok(f"Policy: {policy_id or 'not reported'}")
+        ok(f"Status: {shown(policy, 'status')}")
+        if policy.get("tx_hash"):
+            ok(f"Tx: https://sepolia.basescan.org/tx/{policy['tx_hash']}")
 
-    # ── Step 2: Query oracle for weather data ───────────────────────
-    step(2, "Requesting weather data from Oracle Gateway...")
+    step(2, "Asking the oracle gateway for the weather at the insured place...")
+    reading = await steps.run("read the weather", "oracle_request", {
+        "oracle_type": "weather", "params": {"location": FRESNO},
+    })
+    if reading is not None:
+        ok(f"Source: {shown(reading, 'source', 'provider')}")
+        ok(f"Reading: {shown(reading, 'data', 'value')}")
 
-    try:
-        result = await dispatcher.execute(
-            action="oracle_request",
-            params={
-                "oracle_type": "weather",
-                "request": {
-                    "metric": "rainfall_mm",
-                    "location": {"lat": 36.7378, "lon": -119.7871},
-                    "period": "last_30_days",
-                },
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            oracle = data["result"]
-            ok(f"Oracle response received")
-            ok(f"Data source: {oracle.get('source', 'chainlink_weather')}")
-            ok(f"Rainfall: {oracle.get('value', 'N/A')}mm (last 30 days)")
-            ok(f"Timestamp: {oracle.get('timestamp', 'N/A')}")
-        else:
-            warn(f"Oracle: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Oracle request: {e}")
+    step(3, "Filing a claim against the policy, as its holder...")
+    claim = await steps.run("file a claim", "file_insurance_claim", {
+        "policy_id": policy_id, "caller": farmer,
+    }, needs=[("policy id", policy_id)])
+    if claim is not None:
+        ok(f"Claim: {shown(claim, 'claim_id', 'id')}")
+        ok(f"Status: {shown(claim, 'status')}")
+        ok(f"Payout: {shown(claim, 'payout_amount', 'payout')}")
 
-    # ── Step 3: Simulate weather scenarios ──────────────────────────
-    step(3, "Simulating weather scenarios and trigger evaluation...")
+    step(4, "Reading the policy's record...")
+    record = await steps.run("read the policy", "get_insurance_policy", {"policy_id": policy_id},
+                             needs=[("policy id", policy_id)])
+    if record is not None:
+        ok(f"Status: {shown(record, 'status')}")
 
-    scenarios = [
-        ("Normal rainfall",    85.0, False),
-        ("Below average",      62.0, False),
-        ("Approaching trigger", 55.0, False),
-        ("DROUGHT - trigger",  32.0, True),
-        ("Severe drought",     12.0, True),
-    ]
-
-    print(f"  {DIM}Trigger threshold: rainfall < 50mm/month{RESET}\n")
-
-    for label, rainfall, triggered in scenarios:
-        if triggered:
-            icon = f"{RED}!{RESET}"
-            status = f"{RED}TRIGGERED{RESET}"
-        else:
-            icon = f"{GREEN}+{RESET}"
-            status = f"{GREEN}safe{RESET}"
-        print(f"  {icon} {label:25s} rainfall={rainfall:5.1f}mm  [{status}]")
-
-    # ── Step 4: File claim (drought triggered) ──────────────────────
-    step(4, "Drought detected! Filing an insurance claim...")
-    print(f"  {DIM}Rainfall: 32.0mm (< 50mm threshold){RESET}")
-
-    try:
-        result = await dispatcher.execute(
-            action="file_insurance_claim",
-            params={
-                "policy_id": policy_id,
-                "claimant": farmer,
-                "trigger_data": {
-                    "metric": "rainfall_mm",
-                    "measured_value": 32.0,
-                    "threshold": 50.0,
-                    "triggered": True,
-                    "oracle_proof": "0xOracleProofHash",
-                    "measurement_period": "2026-03",
-                    "location": "Fresno, CA",
-                },
-                "claim_amount_eth": 5.0,
-            },
-        )
-        claim = {}
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            claim = data.get("result") or {}
-            ok(f"Claim filed: {claim.get('claim_id', '—')}")
-            ok(f"Status: {claim.get('status', '—')}")
-        else:
-            warn(f"Claim: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Claim filing: {e}")
-
-    # ── Step 5: What the service recorded ───────────────────────────
-    # This step used to print a "Payout Breakdown" — 5 ETH to the farmer, a
-    # 2% fee, a net payout — from constants, whatever the claim step returned.
-    # No payout happens: the service records the claim against its reserve
-    # ledger and says so. What it returned is printed instead.
-    step(5, "What the insurance service recorded for the claim...")
-    print(f"  Value moved:  {claim.get('value_moved', '—')}")
-    print(f"  Settled:      {claim.get('settled', '—')}")
-    if claim.get("disclosure"):
-        print(f"  {DIM}{claim['disclosure']}{RESET}")
-
-    # ── Step 6: Query final policy status ───────────────────────────
-    step(6, "Querying final policy status...")
-
-    try:
-        result = await dispatcher.execute(
-            action="get_insurance_policy",
-            params={"policy_id": policy_id},
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            policy = data["result"]
-            ok(f"Policy status: {policy.get('status', '—')}")
-        else:
-            warn(f"Policy query: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Policy query: {e}")
-
-    print(f"""
-{GREEN}{BOLD}{'=' * 60}
-  PARAMETRIC INSURANCE COMPLETE
-{'=' * 60}{RESET}
-
-  {BOLD}Actions demonstrated:{RESET}
-    1. create_insurance       - Create parametric policy
-    2. oracle_request         - Fetch weather data
-    3. (trigger evaluation)   - Automated condition check
-    4. file_insurance_claim   - Oracle-verified claim decision
-    5. (what was recorded)    - A reserve-ledger entry, not a transfer
-    6. get_insurance_policy   - Final status query
-
-  {BOLD}Key feature:{RESET}
-    No claims adjuster decides the claim: oracle data does, and the
-    service fails closed when it cannot check it. Paying the claim out
-    is not built — an approved claim is recorded, not sent.
-
-  {BOLD}Services used:{RESET}
-    - Insurance (Component 13)
-    - Oracle Gateway (Component 11)
-    - Attestation (Component 8)
-
-{GREEN}{'=' * 60}{RESET}
-""")
+    steps.summary("Parametric insurance")
 
 
 if __name__ == "__main__":

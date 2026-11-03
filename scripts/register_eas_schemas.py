@@ -10,7 +10,8 @@ are chain-specific and cannot be guessed; the config still has to hold UIDs that
 were actually registered on the chain it points at. This script prints the
 exact SchemaRegistry.register(...) calldata for every SCHEMA_DEFINITIONS entry so a
 human can review and execute the registrations from a funded signer, then paste the
-resulting bytes32 UIDs into config blockchain.schemas.
+resulting bytes32 UIDs into config blockchain.schemas (the primary schema's into
+blockchain.eas_schema, where the code reads it).
 
   python scripts/register_eas_schemas.py --chain base-sepolia            # dry-run (default)
   python scripts/register_eas_schemas.py --chain base                    # dry-run
@@ -67,7 +68,8 @@ def main() -> int:
     print(f"# SchemaRegistry: {registry}")
     print(f"# Resolver: {ZERO_RESOLVER}  Revocable: true")
     print(f"# {len(SCHEMA_DEFINITIONS)} schemas. After registering, paste each returned")
-    print(f"# bytes32 UID into config blockchain.schemas.<component>.\n")
+    print("# bytes32 UID into config blockchain.schemas.<component>, except the")
+    print("# primary schema's, which goes in blockchain.eas_schema.\n")
     for component, definition in SCHEMA_DEFINITIONS.items():
         data = build_schema_registration_data(component, resolver=ZERO_RESOLVER, revocable=True)
         print(f"[{component}]")

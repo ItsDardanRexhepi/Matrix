@@ -23,7 +23,10 @@ Append a ``(version, description, sql_statements)`` tuple to
 :data:`MIGRATIONS` with a ``version`` strictly greater than every
 previous entry. The database will apply it on the next start and
 record the new version in the ``schema_version`` table. Never edit or
-renumber an already-released migration — add a new one instead.
+renumber an already-released migration — add a new one instead. A step
+may also be a function of the connection, for work plain SQL cannot
+express (a table another module creates, which may not exist yet); it
+runs in the same transaction as the migration's other steps.
 """
 
 from __future__ import annotations
@@ -365,7 +368,329 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        10,
+        "a caller stored in one spelling: every identity this database holds, rewritten once",
+        [
+            lambda conn: _one_spelling_for_stored_callers(conn),
+        ],
+    ),
+    # Numbered 11, after the one-spelling rewrite of stored callers (10). The
+    # runner applies every version a database has not recorded, so a second
+    # migration under one number is never applied to a database that recorded
+    # the first, and a fresh database cannot record both. These tables were
+    # numbered 10 before main's rewrite took that number; a database a build
+    # from then opened is given the rewrite by this migration's last step.
+    (
+        11,
+        ("durable execution — workflow_runs, workflow_steps, outbox, idempotency_keys: "
+         "written only while engines.durable.mode is shadow or on"),
+        [
+            # The run journal (runtime/durable/journal.py): one row per
+            # state-modifying ServiceDispatcher.execute and per twin tool
+            # signing call, written only while engines.durable.mode is "shadow"
+            # or "on". `state` is the LIFECYCLE, never a verdict: START (the run
+            # is opened, its call not begun), RUNNING (the call began: from here
+            # it may have acted), then COMPLETE (the call returned an answer,
+            # whatever that answer says), FAIL (the call raised, or the run
+            # ended with no answer recorded — its effect is unknown) or ABORT
+            # (the run ended before its call began). `key` is the scoped
+            # idempotency key digest ("" for none), `decision_ref` the gate
+            # decision's id where the entry point has one. The caller and the
+            # parameters are sha256 digests (the digest evidence_shadow writes):
+            # no raw address and no raw parameter reaches any of these tables.
+            """
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                run_id         TEXT PRIMARY KEY,
+                key            TEXT NOT NULL DEFAULT '',
+                action         TEXT NOT NULL,
+                service        TEXT NOT NULL DEFAULT '',
+                actor_hash     TEXT NOT NULL DEFAULT '',
+                params_digest  TEXT NOT NULL,
+                state          TEXT NOT NULL
+                               CHECK (state IN ('START', 'RUNNING', 'COMPLETE', 'ABORT', 'FAIL')),
+                decision_ref   TEXT NOT NULL DEFAULT '',
+                started_at     REAL NOT NULL,
+                terminal_at    REAL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_open
+                ON workflow_runs (started_at) WHERE state IN ('START', 'RUNNING')
+            """,
+            # Each run's history, appended and never rewritten. `name` is the
+            # step (start, call, return, raise, abort, unknown_effect, or
+            # outbox:<kind>), `state` a word from a fixed vocabulary (the
+            # dispatcher's settled / broadcast / refused, the tool dispatcher's
+            # success / failure / unknown, …), `detail` a fixed word, a
+            # "sha256:" digest or "raised:" and an exception's class name —
+            # never an exception's message or free text a caller wrote.
+            """
+            CREATE TABLE IF NOT EXISTS workflow_steps (
+                run_id  TEXT NOT NULL,
+                seq     INTEGER NOT NULL,
+                name    TEXT NOT NULL,
+                state   TEXT NOT NULL,
+                detail  TEXT NOT NULL DEFAULT '',
+                at      REAL NOT NULL,
+                PRIMARY KEY (run_id, seq)
+            )
+            """,
+            # The transactional outbox (runtime/durable/outbox.py): a run's
+            # attestation and feed entry, written in the SAME transaction as
+            # the run's terminal state. The row holds a digest of its payload,
+            # never the payload: the payload is held by the process that wrote
+            # the row, and only a row whose payload that process holds, with
+            # that digest, is ever delivered. `done_at` is when the row was
+            # handed off (by the loop in mode on; by the legacy path, at once,
+            # in shadow). A row whose `done_at` and `next_at` are both NULL was
+            # given up; why is on its run's outbox:<kind> step.
+            """
+            CREATE TABLE IF NOT EXISTS outbox (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id          TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                payload_digest  TEXT NOT NULL,
+                attempts        INTEGER NOT NULL DEFAULT 0,
+                next_at         REAL,
+                done_at         REAL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_outbox_due
+                ON outbox (next_at) WHERE done_at IS NULL AND next_at IS NOT NULL
+            """,
+            # Idempotency keys (runtime/durable/keys.py). `key` is a sha256 of
+            # the surface, the caller the gate saw and the client's
+            # Idempotency-Key — never the raw key. The first request under a key
+            # binds it to its run; `response_digest` is the digest of the answer
+            # that request got. The answer itself is held in memory by the
+            # process that gave it, never here.
+            """
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                key              TEXT PRIMARY KEY,
+                run_id           TEXT NOT NULL,
+                response_digest  TEXT NOT NULL DEFAULT '',
+                created_at       REAL NOT NULL
+            )
+            """,
+            # A database whose version 10 is the four tables above, recorded by
+            # a build from before they were renumbered, takes the rewrite of
+            # stored callers here, once (see below).
+            lambda conn: _one_spelling_where_ten_was_the_durable_tables(conn),
+        ],
+    ),
 ]
+
+# ── Migration 10: a caller stored in one spelling ────────────────────
+#
+# The platform names a wallet in one spelling, ``0x`` and its digits in lower
+# case (runtime/auth/identity.py). Before that rule a SIWE session was stored
+# under the address as it was sent, usually the EIP-55 checksum form, and
+# everything keyed on the account was keyed on that spelling. Only the session
+# and Apple-user stores read their rows back in the new spelling, so after an
+# upgrade an account was refused its own conversation, and deleting it left its
+# conversation claims, its memory and its devices stored: the deletion looked
+# them up in the new spelling. This rewrites, once, every identity the platform
+# keeps in this database in the one spelling. It never touches a value that is
+# not a hex address (``apple:<sub>``, a label, an anonymous conversation id).
+# The shadow logs of migrations 8 and 9 keep a caller only as a sha256 digest,
+# which this cannot reach; nothing reads them to decide anything.
+
+_HEX_ADDRESS_GLOB = "0[xX]" + "[0-9a-fA-F]" * 40
+
+#: Columns that hold a caller as a whole value. No key contains them.
+_CALLER_COLUMNS = (
+    ("wallet_sessions", "address"),
+    ("apple_users", "wallet_address"),
+    ("conversation_owners", "owner"),
+    ("conversation_turns", "owner"),
+    ("push_tokens", "owner"),
+    ("push_tokens", "wallet"),
+    ("iap_transactions", "user_key"),
+    ("iap_entitlements", "user_key"),
+)
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    # Table names come from the fixed tuples in this module, never a caller.
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}  # nosec B608
+
+
+def _one_spelling(conn: sqlite3.Connection, table: str, column: str, *, or_ignore: bool = False) -> None:
+    """Rewrite *column* in the one spelling wherever it holds a hex address in
+    another. With *or_ignore*, a row whose rewrite would duplicate a key is
+    left as it is (the caller decides what to do with it)."""
+    if column not in _columns(conn, table):
+        return
+    verb = "UPDATE OR IGNORE" if or_ignore else "UPDATE"
+    conn.execute(  # nosec B608 - fixed table and column names
+        f"{verb} {table} SET {column} = lower(trim({column})) "
+        f"WHERE trim({column}) GLOB ? AND {column} <> lower(trim({column}))",
+        (_HEX_ADDRESS_GLOB,))
+
+
+def _is_other_spelling(column: str) -> str:
+    """SQL condition: *column* is a hex address in a spelling other than the one."""
+    return f"(trim({column}) GLOB '{_HEX_ADDRESS_GLOB}' AND {column} <> lower(trim({column})))"
+
+
+def _account_id(value: str) -> str:
+    """A ``user:<address>`` conversation id in the one spelling; anything else
+    as it is."""
+    from runtime.auth.identity import account_conversation_id
+
+    return account_conversation_id(value)
+
+
+def _memory_key(value: str) -> str:
+    """An ``<agent>@<scope>`` memory key whose scope names an account
+    (``<address>`` or ``conv:user:<address>``) in the one spelling; anything
+    else as it is. The scope is what follows the first ``@``, as
+    MemoryManager reads it."""
+    from runtime.auth.identity import canonical_identity, is_wallet_address
+
+    agent, at, scope = value.partition("@")
+    if not at:
+        return value
+    if is_wallet_address(scope):
+        return f"{agent}@{canonical_identity(scope)}"
+    conv = "conv:"
+    if scope.startswith(conv) and _account_id(scope[len(conv):]) != scope[len(conv):]:
+        return f"{agent}@{conv}{_account_id(scope[len(conv):])}"
+    return value
+
+
+def _move_sequence(conn: sqlite3.Connection, table: str, key: str, old: str, new: str) -> None:
+    """Move *old*'s rows of a ``(key, seq)`` table under *new*, after any rows
+    *new* already has.
+
+    The platform numbers turns from 0 (runtime/memory/manager.py), so the first
+    moved row goes at *new*'s highest seq plus one; when *new* holds nothing the
+    rows keep their seqs. Two runs numbered from 0 merge into one numbered from
+    0, which is what the next ``seq = len(turns)`` write relies on."""
+    # The table and the column are names this module writes, never a caller's.
+    offset = conn.execute(
+        f"SELECT COALESCE(MAX(seq) + 1, 0) FROM {table} WHERE {key} = ?",  # nosec B608
+        (new,)).fetchone()[0]
+    conn.execute(
+        f"UPDATE {table} SET {key} = ?, seq = seq + ? WHERE {key} = ?",  # nosec B608
+        (new, offset, old))
+
+
+def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
+    from runtime.auth.identity import canonical_identity
+
+    # (a) whole-value caller columns
+    for table, column in _CALLER_COLUMNS:
+        _one_spelling(conn, table, column)
+
+    # (b) account conversation ids. A claim under the one spelling already
+    # held by the same account absorbs the other: its turns follow the
+    # claim's own. A claim held by a different account is left as it is.
+    ids = {row[0] for row in conn.execute(
+        "SELECT session_id FROM conversation_owners UNION "
+        "SELECT session_id FROM conversation_turns")}
+    for old in sorted(ids):
+        new = _account_id(old)
+        if new == old:
+            continue
+        mine = conn.execute(
+            "SELECT owner FROM conversation_owners WHERE session_id = ?", (old,)).fetchone()
+        held = conn.execute(
+            "SELECT owner FROM conversation_owners WHERE session_id = ?", (new,)).fetchone()
+        if mine is not None and held is not None:
+            if canonical_identity(mine[0]) != canonical_identity(held[0]):
+                continue
+            conn.execute("DELETE FROM conversation_owners WHERE session_id = ?", (old,))
+        elif mine is not None:
+            conn.execute("UPDATE conversation_owners SET session_id = ? WHERE session_id = ?",
+                         (new, old))
+        _move_sequence(conn, "conversation_turns", "session_id", old, new)
+    for table in ("first_boot", "conversation_erasures"):
+        for (old,) in conn.execute(f"SELECT session_id FROM {table}").fetchall():  # nosec B608
+            new = _account_id(old)
+            if new != old:
+                conn.execute(
+                    f"UPDATE OR IGNORE {table} SET session_id = ? WHERE session_id = ?",  # nosec B608
+                    (new, old))
+    # A first-boot mark is only "the welcome was sent", and an erasure of the
+    # same conversation under the same sequence number is one erasure: a second
+    # row under the other spelling goes.
+    for table in ("first_boot", "conversation_erasures"):
+        for (old,) in conn.execute(f"SELECT DISTINCT session_id FROM {table}").fetchall():  # nosec B608
+            if _account_id(old) != old:
+                conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (old,))  # nosec B608
+    if "session_id" in _columns(conn, "push_tokens"):
+        for (old,) in conn.execute(
+                "SELECT DISTINCT session_id FROM push_tokens WHERE session_id IS NOT NULL").fetchall():
+            new = _account_id(old)
+            if new != old:
+                conn.execute("UPDATE push_tokens SET session_id = ? WHERE session_id = ?", (new, old))
+
+    # (c) agent memory scoped to an account. For a key both spellings hold,
+    # the newer value stays; turns follow each other.
+    for (old,) in conn.execute("SELECT DISTINCT agent FROM agent_memory").fetchall():
+        new = _memory_key(old)
+        if new == old:
+            continue
+        for key, updated in conn.execute(
+                "SELECT key, updated_at FROM agent_memory WHERE agent = ?", (old,)).fetchall():
+            kept = conn.execute("SELECT updated_at FROM agent_memory WHERE agent = ? AND key = ?",
+                                (new, key)).fetchone()
+            if kept is not None and kept[0] >= updated:
+                conn.execute("DELETE FROM agent_memory WHERE agent = ? AND key = ?", (old, key))
+                continue
+            if kept is not None:
+                conn.execute("DELETE FROM agent_memory WHERE agent = ? AND key = ?", (new, key))
+            conn.execute("UPDATE agent_memory SET agent = ? WHERE agent = ? AND key = ?",
+                         (new, old, key))
+    for (old,) in conn.execute("SELECT DISTINCT agent FROM agent_turns").fetchall():
+        new = _memory_key(old)
+        if new != old:
+            _move_sequence(conn, "agent_turns", "agent", old, new)
+
+    # (d) wallet-keyed stores other modules create. A follow both spellings
+    # hold is one follow; a purchase row that would duplicate one already held
+    # in the one spelling is kept as the record it is.
+    if {"follower", "followee"} <= _columns(conn, "social_follows"):
+        _one_spelling(conn, "social_follows", "follower", or_ignore=True)
+        _one_spelling(conn, "social_follows", "followee", or_ignore=True)
+        # The two column names are written here, never a caller's.
+        conn.execute(
+            "DELETE FROM social_follows WHERE "  # nosec B608
+            f"{_is_other_spelling('follower')} OR {_is_other_spelling('followee')} "
+            "OR follower = followee")
+    _one_spelling(conn, "plugin_purchases", "wallet_address", or_ignore=True)
+
+
+# ── Migration 11: a version 10 that was the durable tables ───────────
+#
+# The durable tables of migration 11 were numbered 10 before the rewrite above
+# took that number. A database a build from then opened recorded version 10
+# with the durable tables' description and never took the rewrite, and the
+# runner, which applies only the versions a database has not recorded, would
+# never give it one. Migration 11's last step gives it the rewrite then, once,
+# in the same transaction as the tables, and records version 10 as the rewrite
+# it now holds. On every other database version 10 is the rewrite already, or
+# not yet recorded and applied before 11, and this step does nothing. Like the
+# shadow logs of 8 and 9, the durable tables keep a caller only as a sha256
+# digest, which the rewrite cannot reach; nothing reads one to decide anything.
+
+_DURABLE_TABLES_DESCRIPTION = "durable execution"
+
+
+def _one_spelling_where_ten_was_the_durable_tables(conn: sqlite3.Connection) -> None:
+    import time as _time
+
+    row = conn.execute("SELECT description FROM schema_version WHERE version = 10").fetchone()
+    if row is None or not str(row[0]).startswith(_DURABLE_TABLES_DESCRIPTION):
+        return
+    _one_spelling_for_stored_callers(conn)
+    rule = next(description for version, description, _ in MIGRATIONS if version == 10)
+    conn.execute("UPDATE schema_version SET description = ?, applied_at = ? WHERE version = 10",
+                 (rule, _time.time()))
+
 
 # The schema_version table itself is bootstrapped by the Database class
 # before any user migration runs.
@@ -446,15 +771,21 @@ class Database:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 for stmt in statements:
-                    self._conn.execute(stmt)
+                    if callable(stmt):
+                        stmt(self._conn)
+                    else:
+                        self._conn.execute(stmt)
                 self._conn.execute(
                     "INSERT INTO schema_version (version, description, applied_at) "
                     "VALUES (?, ?, ?)",
                     (version, description, _time.time()),
                 )
                 self._conn.execute("COMMIT")
-            except sqlite3.Error:
-                self._conn.execute("ROLLBACK")
+            except Exception:
+                # A callable step can raise anything, not only a database
+                # error; every failure is rolled back and logged the same way.
+                if self._conn.in_transaction:
+                    self._conn.execute("ROLLBACK")
                 logger.exception("Migration v%d failed; rolled back", version)
                 raise
 

@@ -1,11 +1,11 @@
 """What the gateway says about notifications is what it does with them.
 
-0ec0d78 set out to make "configured channels actually fire at runtime". It
-constructed the NotificationDispatcher, listed its channels at boot
-("Notifications ready: telegram, slack") and later handed it the push-token
-store — and nothing in the gateway ever called broadcast(). An operator who
-configured an alerting channel was told it was ready, and no alert ever left
-the process.
+The commit "fix: wire notifications into gateway + README polish" set out to
+make "configured channels actually fire at runtime". It constructed the
+NotificationDispatcher, listed its channels at boot ("Notifications ready:
+telegram, slack") and later handed it the push-token store — and nothing in the
+gateway ever called broadcast(). An operator who configured an alerting channel
+was told it was ready, and no alert ever left the process.
 
 Which gateway events should reach which audience is not decided anywhere in the
 repo, and broadcast() with no ``channels`` reaches ios_push (every registered

@@ -1,14 +1,14 @@
 """
 BlockchainInterface — base class for all blockchain capabilities.
 
-Every capability inherits from this and gets:
-- Web3 connection via RPC
-- A platform signer metered by the sponsorship policy (`_platform_signer`)
-- Config-driven chain/contract addresses (no hardcoded values)
+An agent blockchain tool that inherits from this gets:
+- a Web3 connection via the configured RPC
+- the platform signer, metered by the gas-sponsorship policy (`_platform_signer`)
+- receipt handling (`_receipt`, `_unconfirmed`)
+- config-driven chain and contract addresses
 
-The base class writes no attestation. A capability that attests calls
-EASClient itself, which signs outside the sponsorship policy;
-docs/blockchain.md lists those actions.
+The base class writes no attestation. A tool attests only where it calls
+EASClient itself, under a metered operation name of its own module.
 """
 
 import json
@@ -49,7 +49,8 @@ class BlockchainInterface(ABC):
                 )
 
             try:
-                self._web3 = Web3(Web3.HTTPProvider(self.rpc_url))
+                from runtime.blockchain.web3_manager import broadcast_safe_http_provider
+                self._web3 = Web3(broadcast_safe_http_provider(self.rpc_url))
             except Exception as e:
                 raise ConnectionError(
                     f"Failed to create Web3 provider for {self.rpc_url}: {e}"

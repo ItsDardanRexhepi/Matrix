@@ -17,6 +17,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 # Valid rights types
@@ -125,11 +127,12 @@ class RightsManagement:
         #
         # `set_by` IS WHATEVER THE ENTRY POINT BOUND, WHICH CAN BE WRITTEN BY
         # THE CALLER. On POST /api/v1/capabilities/set_nft_rights/invoke with no
-        # session and no X-Wallet-Address header, the security middleware binds
-        # a body `wallet`, `from`, `sender` or `account` field, or `params.from`,
-        # and that address is recorded here as the grantor, with source
-        # "authenticated" (see ServiceDispatcher.execute, 17-J). Only a
-        # session-derived identity is authenticated.
+        # session and no X-Wallet-Address header, the security middleware binds,
+        # for a request carrying the operator key, a body `wallet`, `from`,
+        # `sender` or `account` field, or `params.from`, and that address is
+        # recorded here as the grantor, with source "operator" (see
+        # ServiceDispatcher.execute, 17-J). Only a session-derived identity is
+        # authenticated.
         _set_by = caller_identity or ""
         # 17-J: WHO, and separately HOW WE KNOW. `set_by: ""` alone could not
         # distinguish "no human initiated this" from "we dropped the identity"
@@ -216,7 +219,7 @@ class RightsManagement:
                 if _prior is None:
                     continue          # a NEW right type — permitted by design
                 _owner = str(_prior.get("set_by") or "")
-                if not (_set_by and _owner.lower() == _set_by.lower()):
+                if not (_set_by and same_caller(_owner, _set_by)):
                     raise PermissionError(
                         f"the '{_rt}' right on {collection} #{token_id} was "
                         f"granted by {_owner or '<an unidentified caller>'} "

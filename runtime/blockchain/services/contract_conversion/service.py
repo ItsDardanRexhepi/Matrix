@@ -1,7 +1,7 @@
 """
 ContractConversionService — orchestrate the full contract conversion
 pipeline: parse source, classify complexity, detect creative patterns,
-generate optimised Solidity, and inject platform fees.
+generate Solidity, and inject platform fees.
 
 This is the single entry point for all contract conversions on The Matrix.
 """
@@ -155,9 +155,12 @@ class ContractConversionService:
             return {"status": "error", "stage": "compile", "error": "empty bytecode"}
 
         try:
-            # The one site in services/** that signs without going through
-            # `Web3Manager.send_transaction` — it needs the receipt's
-            # contractAddress, so it drives the broadcast itself. It took the
+            # One of the three places in services/** that sign a transaction
+            # themselves rather than through `Web3Manager.send_transaction`
+            # (the attestation service's revoke, metered as
+            # `attestation.revoke`, and its time-critical write, metered when a
+            # caller asks for it, are the other two) — it needs the
+            # receipt's contractAddress, so it drives the broadcast itself. It took the
             # account handle and signed with it, which was an UNMETERED
             # exemption; a contract deployment is the most expensive thing the
             # platform signs and the D-045 cap could not see it. Metered here
@@ -247,13 +250,13 @@ class ContractConversionService:
         source_lang: str,
         target_chain: str = "base",
     ) -> dict[str, Any]:
-        """Convert source code into optimised Solidity for *target_chain*.
+        """Convert source code into Solidity for *target_chain*.
 
         Pipeline steps:
         1. Parse source into intermediate representation.
         2. Classify complexity tier and compute fee.
         3. Detect artist/creative patterns.
-        4. Generate optimised Solidity.
+        4. Generate Solidity.
         5. Inject platform fee logic (if configured).
 
         Parameters
@@ -549,7 +552,10 @@ class ContractConversionService:
             }
 
     async def estimate_cost(self, source_code: str) -> dict[str, Any]:
-        """Estimate the conversion cost without performing the conversion.
+        """Quote the conversion tier fee without performing the conversion.
+
+        A quote only: nothing collects it, and it is not a gas or deployment
+        estimate, although the capability id is `estimate_contract_cost`.
 
         Returns
         -------

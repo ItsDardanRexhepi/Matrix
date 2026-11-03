@@ -1,0 +1,1395 @@
+{
+ "actions": 253,
+ "cases": [
+  "settled",
+  "broadcast",
+  "unconfirmed",
+  "refused",
+  "text_answer",
+  "raises",
+  "not_implemented",
+  "unavailable",
+  "no_method",
+  "unbound",
+  "anonymous"
+ ],
+ "digest_by_action": {
+  "achievement_attest": "d0c529de0072e800b58bde622b94bfc0097d20467015abfb507c3986ac13c8ae",
+  "add_liquidity": "7bb81631f9437e92457696408b1bb16c8ca05b290bab86a773cf3632816e47f4",
+  "agreement_execute": "eefca41088745cb188cc9076901bb5780b240fccd7be79532f3b071a59266abd",
+  "ai_agent_register": "9bc6068e086631f619307ce1ce2085bf4ebfdf4b131be2774026e7c3a555e08a",
+  "ai_inference_verify": "156ba150a2b353c0a1aa157756c9db05336023923977346c755283c4ca9466c9",
+  "ai_model_trade": "26b4432d9c9039144ca5b0fbe0919989b8d3fa7563e636e5b387070cb9feba2e",
+  "api3_query": "e736ea72d1fcfd99163c93586cacb92ead317c88b5584c74135817729468a23c",
+  "appeal_dispute": "48c813f8c64bcb78b78f5df4ab51a3e212303521accf755a422baca560c68d7c",
+  "approve_game": "7cfdb47517ea637c7987e6f66725ec787f1874e9624d6d181471aff0b904be79",
+  "arbitration_request": "93a23596603448a08943a17573688fd632e88e510ab1b913fb409af3e5194abd",
+  "authenticity_verify": "72109f46aa21a9a8cfcf871e3411a6b9443a45baea10766b08c059e916ed432d",
+  "batch_attest": "ad07be87e377a334e06e1b9920f242d64b3ffee497cac47000c142b36cb458ce",
+  "batch_track": "c763cafce4d71813244c447f9d621f1c5638250b4ede321dddfe37324ffe6dca",
+  "borrow_against_nft": "7a69c4b69a92c78bfde4f6b6df865a31caac42c6fa5d5ff476d9965afcc4e8a7",
+  "breed_nft": "ef4944e08cba4a0001ab0ca8fbf946baf20922963fb9f271dbc22fd144499042",
+  "bridge_axelar": "37287ef8b32093ec2be6f407ba549c90b1c380acf96fbcf0adf6fa2320a8f99a",
+  "bridge_hyperlane": "662e6d9d41dd9c4851446f077b761475fb846c3f8e50147ff15c869f5f04c49d",
+  "bridge_stargate": "a7f5af3ce9c8527215d97cde0b20d1754339fbb4a0937558983edab545813d0b",
+  "bridge_token_ccip": "ca9eb76937cb1da812dd7d5c64bad6ef5a9cbccf42099f71eaa53ca60cb5c141",
+  "bridge_wormhole": "448d1705207fe4bdfa24d410397eab20006942df53dfc4d1d2219c1640ad3e25",
+  "buy_marketplace": "ff427677c95bdcd2c1603872aa562c170dfc9df1f3da1bf9b4675957672ef209",
+  "buy_nft": "a7b8aa90692217f1507ebb52fa6e59af71093b637bfc05c20745fb5437acdfc7",
+  "buy_security": "1ef46d3d45ab4362b89bef4cf0b881796bbd3e1087d154241f81be8fc3fa5768",
+  "cancel_insurance": "c3505c2bbd4bef11e4eb09fe5fb124b6cd10c6a28f671fe5840f5f481c410758",
+  "cancel_limit_order": "88e27503688a9837dc7807761c255c2c7a3bd83046ace5002cea3164a32e7209",
+  "cancel_listing": "7a26d85a1a237efa8ab64d72418d0f53b9bd9a5671ef8c67d323172aee9d4712",
+  "cancel_subscription": "36e7f81ceb4087c61e1093c6fc64641b7fb97c3b2ac0d6701c45ee82ac843a6f",
+  "carbon_credit_buy": "185b31a95aa80251e08ea1f2f8ffa6c374389557b6ecda347d31dbbcc5ef1b86",
+  "carbon_credit_retire": "3a9cb2482e0a70fdcfc45fc7d6e0dfac81c6ab00eca3d0d906998a38955724da",
+  "ceramic_stream_create": "4ffee0f9e9c3bdea1f915b835bffafe54c476be6e8aa52c0da62ad04b2baf3ac",
+  "check_aml_risk": "407a462c2740856f22adfd33c2e77e6db530bb98459ea03fe803d2a6f0ea2d80",
+  "check_nft_rights": "dbfe77762e8f46110d420515ec902d72c7fb8443edf047d05d5afdc886eee277",
+  "check_privacy_dependencies": "69e8501a015ff402a678cb56374450e938cf36f3edf00c8ee30b8668f90929ee",
+  "claim_auto_settle": "52776adc6b0b97cc2fc77b2c9f7caf1b7e2bb9e5c1b9247bb761991178319f30",
+  "claim_cashback": "45ad95e2aedd364e54abdbdaba2ff9211ba36df5d363f0b17fdd01c32df1460f",
+  "claim_compute_reward": "790193a404975b2859ec3c631245a258de42c71c186a1feaac53055ae0b42938",
+  "claim_staking_rewards": "1251edf225732cdddd9508f10a4bd3c10ae25190b88604d44a9d55c98cf09996",
+  "close_channel": "8b7ff3e05db2e3cc025e901e558e3cb6de8347e24ad4a342af0d4be6b08d729a",
+  "community_create": "a21e9fbc6183adf4954496093153fe06b3c64035e158e57a95e5dda9ab98c388",
+  "complete_payment": "52daf5d414f21cc4b4c7d3d3d433ecd259e7ff40553aa0d85f6dbb8609df1d5a",
+  "compute_job_submit": "d981338476bba41641b004d853a84e68e51b7046f8e17ea86031614297720772",
+  "configure_nft_royalty": "8d228df52c238227f6fdb312016aad1ffdbea308a6752aaac0b6f5bad18240b4",
+  "contribute_to_campaign": "62bbc4e0afd810a49395d0eaabe7b0afadcb931ec136d1eaa403c939ad1fa24e",
+  "convert_contract": "a8b5df61117836b8244c6036038cc401c071afd66fa28125050245e1798114cc",
+  "cover_renew": "a17d16e797433596fe631d86baacf4121894908acd0c1b61fab262f5e826d3e5",
+  "create_attestation": "9fa3b401147838068e373217cb9ba7bd994f7ffffa02bfa77a483c518a04e58e",
+  "create_auction": "f0a86946c83e233eebc3628f106bbe54fe2fc410c3ea43c01e0ee08ae3d37081",
+  "create_brand_campaign": "12179541e3012016b2f95286875f0814725a92380c3b09708c00cf52436e0a0e",
+  "create_campaign": "1ca5cfaddc156a4a1235c2bfc2bd00ff4d8f9efac540ef0d56b5f76ef563dda9",
+  "create_dao": "b1b783ffb09b1c7079b68ace2cde1f43b8414c21dde1dfe6f79130348f91e366",
+  "create_did": "874ddd717ec666a83c8cee63d692a710ab6fd3e2502b84ac31cf517dd5cd1018",
+  "create_insurance": "147704c0d0b313cd0d8934a3487c890cf40108e980547a6dc34b4b3f743cf5cf",
+  "create_lens_profile": "7fc36017e5b7175df634d8980a65db7c87f8a520a0ae41fb1152e186077dd6f3",
+  "create_loan": "c6a54c83dc46dd9d08ad4a3f66a0cc5e6f97db1a88c7ab40a8f6816d38ff34f7",
+  "create_nft_collection": "de49abc4a69f59c73e4c8176e5ae46ada46aab0e7602d775c2c9aed1371a67dd",
+  "create_payment": "1a17bd1fefc439b376942c3c621467fdde0f783d83d4243d9bac81a6ee504cd3",
+  "create_proposal": "d202e77ae95d2a85ec41a756aa9a54ed180273f4b59e7d569a5efeed823a0b59",
+  "create_security": "a0afc7339e1ddf74da6addb4c54ba4f34980707ec735a3f4c92a2595c8d86c7a",
+  "create_session_key": "f2f936f5154c249383032f3fcee1046b26f5dfff252b23077e3e541ee4fd735b",
+  "create_social_profile": "077b572153d0eae97be38272c3a451c1387806ae97ff9890ba8af636e6f4e548",
+  "create_subscription_plan": "e94f2302bbcff0c7f0da87890b30c044f11972e4661352ee32a274765d09e26a",
+  "create_tba": "68a9a2c308bc23206f0bc498e1424bcfe75f7d633af006186f0cefc6fcdbdcaa",
+  "creator_monetize": "765cce12625cd93928660a483cbbf2bd6477fa22394558f6a20d4d42253e783e",
+  "credential_issue": "10d564ec19e7f592c465855fcd88433a8206db7fb9dcfe158cd75a6cbc0a4a6d",
+  "credential_verify": "e9ea10907cbf92696c6a73c7d905159a87734584bc0c50170f1a6f15907d706a",
+  "cross_border_remit": "699079a53963398b217162c10689c1cf6c92f766c5d2092abd0dd934fc8c72da",
+  "cross_chain_bridge": "40b36490563926e6af1c7b7fcc32eb5b5c7bb61d3a1c8700584553108205ada1",
+  "custody_transfer": "28bf2670169b3dff07e4506438a2800056a838578390d062805ca983bab3f91d",
+  "deactivate_did": "a0bcccd6c34bb88df534692f1b2ee087b725553b7c98a080872dd44dfdcdf33c",
+  "decentralized_store": "da1be6459d58149ad45891e921c563627e6082694787b58fa6fc3abbfc119274",
+  "delegate_to_operator": "8255f5986c6c66f33e0d67632372fa4e78df92afb9dfed26e924838e7e415817",
+  "delegate_voting": "39fafd545bfe888bc7b26f150008c76ed7fdee36e4bd09a63e826bffc396fb2c",
+  "deregister_agent": "d4281559b2f6dd0ad44a977bc92ffacf6b2b127234ca279a4f0ecd8fbf26c1f8",
+  "did_create": "296acc61cc6621c58f7efe888cab9da87fe7fefd71fee48b263643e83af83ccf",
+  "dispute_file": "664f12e559f0dbbf4e785058fd06623f48234c3d496c9daaaa7514664114a1c8",
+  "distribute_brand_reward": "f5bcc7c19c65041dbf08072fb5e04fcdb5660ad9fa0f553c819c272b5f58d9f6",
+  "earn_loyalty": "84c96b4283611a49d700251a084e63533fef9a5012b5ccf73043205e19466088",
+  "estimate_contract_cost": "a3681687656c9cd6e55689ca1e3067b6b1dae3532f95c70d4d622417ee4ab9b7",
+  "estimate_nft_value": "e9c71ecb3ffab6b61b0725b381d6e00c19fada8f95d94ab580deae5e4a16aab5",
+  "execute_as_tba": "721f7acebbb18c0bdbd284e0725595b649e33956c564f5ba43275d943cce7b2d",
+  "file_dispute": "7bde98e7363763a36d268c457b71a386575663a7f2f5a3c7fce547cd8ba5b545",
+  "file_insurance_claim": "8fa45051cfa1e20bef2d8f196fc0af3e6e0912b7abdea3e2db139e1c7b68ac02",
+  "finalize_proposal": "85c07bd4049003da330022bb2da90163a12587ec95d1be672705ed9f4fa30287",
+  "game_asset_mint": "4491ea1aeb7f518da8cc93af5d910ecea425a15e131cbd6641bbb4d2161835f9",
+  "game_item_trade": "d38e2e66f9e749a3880941e75b8c4eee97e913ace86338df242b646912d1c5f7",
+  "get_activity": "d0139dbec5b2cc3e19940762b51dbd3b9282d3f0c2f055aa37c64cd2db71f0e3",
+  "get_agent": "232e1e2af8b7fa688a4d6367dc4c22ce75f607e99b3d2e6b109385841e37eefb",
+  "get_brand_campaign": "293a8e25916e347df0bc65a9a6134ea09a60bd0240a6f19f108649aa8eb76e1f",
+  "get_campaign": "0a309723f7646bfcdc8281168aadc5d62a8e203a4738801314b55aa8727f57ef",
+  "get_cashback_balance": "e711189892db4b3ed3de0aa0c5f487fa54035529f9939060c74fcfb1b5c90af1",
+  "get_component_status": "f63063dec2951930bf21ba820617202c9d7370bee03708eaa79174c8b5b64373",
+  "get_cross_border_payment": "db267dc79abf26fe1b4453ae83056501125b9bd786cd3f2257ac382700836943",
+  "get_dao": "62c97c3c36eaed461ab1be37789cc54803ac0fb16ca98b13bb62e52f6387d28d",
+  "get_dashboard": "5e62d5017f1f4f32fb944f669451a4b3eb0453fd656fb4b3b272e14742fd32a0",
+  "get_deletion_status": "02eb8615d212e5d343c879e1092383cb0ceb6ad044a32bbbbfd0da07a74ffd46",
+  "get_dex_positions": "d5dc970cef1b4c8e03124793908bf37d626f8e6a75067e9d76f0aba6e2338c3c",
+  "get_dispute": "3f085b72761e7ab964f69b1e4082297e6baa461133b838c949d8fb37a38be5df",
+  "get_game": "77c011d96ce99d95b139512a2877dc674f6d110015f7aa2a77bce241e1a9959f",
+  "get_insurance_policy": "55828fc51726e13d61b64fea1fff4cb59ab49b7013a9521d59655e3481d22837",
+  "get_ip": "42ddc1ddc01b67cafb5a655db0a96cc1a377a02a071134e63f625a36d0dc6d1a",
+  "get_listing": "8e5d40432b9d20b046e53ded13aec6b8113a29c62bff5d3febaa7ca03169fefa",
+  "get_loan": "fbfdf9cd459f6d40565d7292709fd3ed66aacbb28ddddd65e35714a29e4cc04d",
+  "get_loyalty_balance": "b6c00249eb25ab0eb8cf334ff1e36775b28fa439c159ffe1e4e2f476cf6eb943",
+  "get_loyalty_tier": "ed708c9e07dbed9c530e4c30d18c31799496ab3caf5e7ec66bf53f484bde6e0d",
+  "get_nft_rarity": "b6626f62c9fcc058f57e1aa33cf69bdbe14c662215ccfb5049a8c2f7eb102c89",
+  "get_payment": "51f73c5276c0d9848288251927b899288b8b627b0f39ecea4a523be4c44af201",
+  "get_payment_quote": "ef9d2211a2bed19d4ca4c770f15d7c79f00ae7dd059b801ae7591c1e69711efd",
+  "get_platform_stats": "864bca49176a13037848b18eb78ef23bf7c80e3083c49d0f9bcb85fe66bc86be",
+  "get_price": "0becd82d0d34e50209114ecca4770a3dbbcf31cb5b9d050b18770eda00605690",
+  "get_privacy_commitment": "6253e8407f17882b45bf85fa5feabfbbc5ecf58c88807b228833dd9079b60f13",
+  "get_proposal": "c87167bf6ef026884a4c9716c896e4316836c2ac483af1e6751d75c2d9a0d8e3",
+  "get_rwa_asset": "8e6713e03912f0d763da2f98ea41d8b1d287a0e6b1595c74d3d951cad5625547",
+  "get_security": "c00a92ba4bc322a3a75501013da08b6bf91b5dcd792120e7459707c915dea82d",
+  "get_social_feed": "231f0c21f4ac8fc2925f4435ca888da0cd8aba08709d2691dfe0a25c165e8538",
+  "get_social_profile": "fb44ead16f56e590af86027f071d3fa8068d846481d1c50bb339de839d720719",
+  "get_spending_summary": "7918062ebbd3dbc55024f5306b0d5e5b7c8ece39604c7457e0d041cd7d163f91",
+  "get_stablecoin_balance": "1046b929c987aeb3a125a32f4aeeedadbb6f8cc3528d462cc3a0d3e608d20b78",
+  "get_stablecoin_fee": "634a7c915fa142283433b2851c3612438fe62b9bc84b58139dba65a62ba11a04",
+  "get_staking_position": "91ffd6370720aca7b7f96a6eb19726fe1560839b1d0d46781b9e8c4d28a2be07",
+  "get_subscription": "ce9fcfdd16be6ddea8f26dfa1614c7c7020e48372ae65afdacdb6d7702746aa6",
+  "get_swap_quote": "ec1d6313a9230339331ddccbb4595ab942e09a1daf90ae2f6a734e2446229e2a",
+  "green_bond_invest": "97ca37052deb69fc01cdad1b7307191fc4457019838bc52836ea63b2658f9c36",
+  "ip_license_grant": "1a71089a8238bdfb4ec99949b0804f5757bb2502f1c8d0f27e3ebbbe367a78b1",
+  "ip_license_verify": "cc738dba7323117834c31cd8673b7be1649ccdcea69827dc5edb68d87fad05f5",
+  "ipfs_pin": "f23d09b0246b5feafe2027316b19f2e4fed5bab714421759735ff42782983a0d",
+  "issue_kyc_credential": "66044b4b95711b2095e40fb2bcd0e2fcbc192029042d63eee6b301913cbbd068",
+  "join_dao": "a4200b7304cf02eab45765657b17828f53693fc361d0abe1936623b3dee8f028",
+  "launch_creator_coin": "e7ca86ff2cb155651f4918f47df5943510bbabe03302d7cb390f2fdac398f789",
+  "launch_social_token": "ec32262fdf586ade3fcad35e838e41682d76dbbc7f4a68b5d6ec622d053d56b7",
+  "leave_dao": "d779674d4788da5e1978ab39ccf1a2e0abbd09f1dee3d48c46911b35a08f4bfc",
+  "license_ip": "b4472208f6d1147ddc219aa04c49ca95337302e59b8e6bc4c8a18fbda329ee14",
+  "liquid_stake_lido": "35146dedb966eacc56495002d781b0c5b271bec698df8f80f33c0a1940af5f59",
+  "liquid_stake_rocketpool": "9d922105aa231f3723559cbebfc763e5112806c03bc735cec51915aa3f2bd0ca",
+  "liquidate_nft_loan": "75c14ed3c11ca509fee3501a028b1df355a36a3b11768b08a75de2d0f0418afe",
+  "list_agents": "640154781a3770c91667b12531eb883bdb6ad62e48f35a85ded24df3e2b2f623",
+  "list_brand_campaigns": "a112969f83865dc21c851409487be28207cf75b815b79e0768f8d13793faed57",
+  "list_campaigns": "281cf32061a175f0344fe4a7a6ca24558693252374c1589f8365457150c9428f",
+  "list_cross_border_payments": "0df21f185dec5da1065f4dad18cdb3b41da16ef22ad2a32d200fb7d97f825e73",
+  "list_marketplace": "58e2b2e395c6b173bddc5e62dfc095ef3d3278a8e24d3fd79ac03b2ff46241c8",
+  "list_nft_for_sale": "108fde61515ec5d3d513c5b001c29b22709e658e282fae61598d7f73875fe66d",
+  "list_payments": "e49228ce4402eb2971142c30c92c8643c0deb756dc9e2742e71db7682266f226",
+  "list_proposals": "a4d87bc74cf2ff9af9d4b5edae97d4adbd1c5d5ce05bc53e24a2591a55cb8c58",
+  "list_security": "d0b2b11572e4cd2700e0d451656e057453b5f7d6b4b299ebff588d050de19241",
+  "list_templates": "d35cba7ad04808e69ba54399de8d3c94d8909dd3d1ccfced1cc30f8e1cad4e0a",
+  "market_bet": "411447693e008abc22a99fb423798100c3fb228c889e40aead2fa04adc37d2a2",
+  "market_create": "15b561bc43938a54bf1d63a8ac5aaa3ffcb2cbaee64568771ca258a0f2a500d8",
+  "market_query": "6f749de5b84bf89452c365388585127dceb7e9cbcb9d2e82ca5243e39a770d20",
+  "market_resolve": "9fa443f9ed21a02c7150d9a5efe75fef81d030cfd4e2f3a45ed9e8696a68792e",
+  "message_encrypt": "eb1469f91f83da7dc5619354c9aa19d2c5fedda5bc907bcb81be1a3968a80592",
+  "mint_game_asset": "e658d7c526c0f284150ac2a8ef3ff5d61c822f0dad2305f78949070d5ecb5539",
+  "mint_nft": "4e9753d40adeaabad050a7c106eb34dd508af549cfcca59b3e3ffa8ed68588bd",
+  "mint_sound": "b13bef08ad861f87db8c2f98eda863e7fae82f500c85b326314384565c2d8af0",
+  "mpc_sign": "106c1480bdd7f7e772dd9fb1c1acd3ccc244a47a2f64292115ba1edbd717aa98",
+  "multisig_approve": "657cdd7d31dc2f6308e9122b65f59df4844fae43c299403262e836fb53ade932",
+  "multisig_propose": "e3a4f7fcf602875c5e2b29da175a0036ceefaeeb084e4ddbff67f382a993fde5",
+  "nft_batch_mint": "c5d97a1a27f1648c20681ab3e5dbbfcf9844c08b8329bc5a12fb376c70aa411a",
+  "nft_bridge": "0d81b8c9a1893d93417aa328c7031001b1a6f6e8fc612cdf52206b82159c31ac",
+  "nft_dynamic_update": "1fa0606bbacddb77d34cd30639ad7cfa1108b41bd6c1638fe8dcbdbac3a7c57d",
+  "nft_fractionalize": "7df9326a3fb7dc0b27b33137f6407af9a04bf268df9f32d3de4eeceeab1fd32d",
+  "nft_rent": "c8418ac3bd27556b0c852fcad177824fd8354b3a14803afb032a46c011ba3e09",
+  "nft_royalty_claim": "a9330c8bfb35c60c38d1001bfe3eafab578222dfd9e36c155f599e1ead363917",
+  "open_channel": "81b6dcde9767aa5a2d06ca5e0dad0168af540c40a4b5d51a6dfe12ad566be4b5",
+  "oracle_price_query": "fb4f3b690789e4938667c28a9375c3a85d1771e7f70d01889f6abb2ba73c74a5",
+  "oracle_request": "cb1a0837e2af317759dc883fe5cbbc0f7544d983ca480718239ce8ad9bab6ea2",
+  "oracle_vrf_request": "387cd722088da91be18554c0e7627b770dd571292be50d1b55ada0969dc3ef00",
+  "oracle_weather_query": "9c76437be2b2babc1be717b04e6ef8e817c6dfed39be41dc1615cffb3a3fe517",
+  "orbit_db_write": "729bfbc1411ef9bc953ff5222dfc4631a4cbbf09847f9503c68c5330d7ec06e4",
+  "parameter_change": "147feba2d828be9f37ff3c633b8c87ba2e77d71915a7b02d143bbbebdfa172e2",
+  "parametric_policy": "3ecac5b1407d10b26b17569d535b86a7c6a4cad8b3cb5932a6465f62d08e7ffd",
+  "place_bid": "fb77ab02c820450fb76bcbb5644f6063b2d09d5b022592465ee44ca33fb9f0d5",
+  "place_bribe": "ea3bc4a1e7c842b2b68bf5befc88dfaddb7fd960f8cf8997eb8c0e44ea3727b1",
+  "place_limit_order": "c20079e6456072f620a1b4d32034c6f2c86cd372a016166f3827b61f4f1e004c",
+  "provenance_log": "318e86e38cce4e65b070da5ed194bc7cdccd734aa757b9102b08c7a7297cf7e1",
+  "publish_cast": "b153734eae743f1a596a8700db063685bd16d1473086d4b6ebe7e1ae4f0fe304",
+  "publish_mirror_post": "fe7b369be0c5bec3bab5cc5dd3db82942a77bcfd6e25ca0c73144ec494711d98",
+  "publish_paragraph_post": "c077dacd47f0b597d870747ea0cbd98f569e52f784f1e06d01996de7cd5110dd",
+  "push_subscribe": "4a00f7bb00cea4f4cd28a605b4fa59ad1bdf6754c26866c1cc0b3d41690c25a9",
+  "pyth_pull": "ce2637885d60b1ee8f5941a56959126be286f0ee8d4ab94580a1a646420bbe87",
+  "pyth_pull_price": "1e0906b836f84c65a380da226c29e958010d37a6015d6c50b06e12c90b739bdb",
+  "quadratic_vote": "6d70acb0cbc7f318fc2d2093a8c3e3ff98e28df180d21bb88051dfc80d9b3490",
+  "query_remote_chain": "2a478e24df113b18e60987883bf53483a22f38eeaabdcdfb6e6301c0abdf778b",
+  "recover_wallet": "562e9be07cc0b3cafcbabf051279278724a82b87a85b0b701d7f6494542cf35a",
+  "redeem_loyalty": "78cbd893b1eef12ff85b8b12ae788581c15f6f4d42ab52e70fb5aa4118bf9e9a",
+  "redstone_request": "416637ae4c3937437a93ee09e3dd6edc31b6a9c482dd7e3c1caa45d558818fd8",
+  "register_agent": "74456c629d9957131f8cd41457a40b977ddd385a9e647a6ac19fb3aba0bc32df",
+  "register_game": "ffe4a6732ef0f20ca720de33f4b5ca219eda2678c0a58f1fb8e3e5336c6fd85c",
+  "register_ip": "6106c6a3f87e11c66ae55170b68b0be389ca18b325ec904a0f8f0cf86ad953d5",
+  "register_keeper_job": "03f5b389dd4494245b8f090f054668ec9fdfb77fb4c85658ad477ad7284e4640",
+  "register_product": "4dcd77ec0a6ec1605d146f1584dea0cb92c61b68671665e390a39b586a236225",
+  "release_milestone_funds": "64c30ba7ff1f9681b219f6dde50671d9fc4903a037787cafff626c501d03e408",
+  "remove_liquidity": "3f43fa22bcd47238ee0f5c5ed75faab46468015e91237eed48d5455634979db4",
+  "renewable_cert_buy": "01edb36b330ccce7ce22eb1cd7645a0d78a8ee5461f93ca51a1567528f6caf4c",
+  "rent_device": "4f7788bd8c40407d557012c663e351512f9065860cafb1579081e16b452c8bb1",
+  "repay_loan": "4e6496f01e3aeb0d8252bc7b8ec260f27673dc0f32b00bffd78d941cac1074f5",
+  "reputation_query": "0f0e925a376faedb80df23521fe2c453afff03213af34786ae65660f371bd167",
+  "request_deletion": "632534ee0057a318ca08e251d39f603c2b3d48658b90fd040032e2cd3e1d2257",
+  "resolve_did": "247eb780c0fc9158684c05b8f0e6a1f5fd37f9315311601000a7260c4e4b778c",
+  "resolve_dispute": "12ede58e8463167cd6720b161ee25282bd2e6c5bbfdb6e37a41ec529cc794569",
+  "restake_eigenlayer": "a316db17a4d7612376e6b19d8c28c78dbbffc2054bc81992d725d3fc7c1a95fa",
+  "restake_karak": "f67cf2c8fa525169a1861a1601ccfe95b7e451ae3e0da56e70ba47f5e0f2575e",
+  "restake_symbiotic": "25303dead2e6bd91876acb568e1bcf4998d3a603c5dd72b169c339d5c59fbb73",
+  "revoke_attestation": "d4531e4f71a880abc2cdd51525fef6a7be9ce1ec0f591f341440ea72887a8acd",
+  "risk_assess": "df5fcd4d8bf9deffb7fd8afefec085a3a3756e65977ed17ef93b3c572031cb66",
+  "route_payment": "554f40f704385ff3d27dee3f0ab89a195de0062b4c4a964abe8f04c130b0e4dc",
+  "rwa_fractional_buy": "9ce53cd85dc6fed6d65dbb01612ca59f7d271e05d17cbf8b1b8001003152f753",
+  "rwa_income_claim": "5c30cd99d2e659b0aad943a686ad81efc136e81447d78d681328b31f98aac9dd",
+  "rwa_tokenize": "23a333da4426249f61320d4322783d528350a158edb427a325f83f14db90d902",
+  "rwa_verify": "06a9c946e1b2f02f63ed1642dd07cc49ceb35afc500a167386a95416b4f554ad",
+  "search_marketplace": "b62bd481608ba964fcd461f9e5f662a188274892495d213c5053965c51be185d",
+  "selective_disclose": "de1c71b04dfc1cea9c830894a35245153b53075114a39ac632dbc50fdc8da193",
+  "sell_security": "9a799893d95f99fe9771c9de161e110dca1e6122b14ffbc6ddb50cb9c9e904cc",
+  "send_cross_chain_message": "f7667ae59360ac763210c88aca6e299f4f17084afec6344d0ec95c1ca513b192",
+  "send_message": "33e628505fb9b3a557973b5a8b315e20725e56317de3e001d12bd81356056aef",
+  "send_payment": "465baf84b63dcba603c1a77745ea910cfb563665e1776f379ceaa161811c9cd9",
+  "set_nft_rights": "2951c3782c185dc52151e494f99fbd09a65abdc59c769110d24b35312a053c73",
+  "settle_auction": "3f880c61f5f83bd2def1238838d807ab2a27e3016e70d853de17f739eca794ad",
+  "snapshot_vote": "f776d5a05e78f1e3b394fc9eb6622e3fad6dc6bc1520575c2400547833d5025d",
+  "social_follow": "7fa21b5b7bebbaf039fa23c526b35510af2b33194fa907975b81f8a22c28abae",
+  "social_gate": "8005e0ebb7bb6beee0118700123ef86ccf6ee7e92bacc1a5aa18da5b056a6a92",
+  "social_post": "f8d08409dc87c3519164dcb5f9f814ad628dcd39a05062984aa0b4978a34ac77",
+  "soulbound_mint": "158eb2d725970555ca93213f275a2073d03dbaaba698ee7be3bfd758988997db",
+  "stake": "daab5814b2c383d1a0338671e05ac617bba4a7918032bd9babe3d3a58bbb0021",
+  "start_kyc": "d74eb4855dfda819ed6e671d33ef41ef208a851b41f114865177535d1bc38b4a",
+  "store_filecoin": "72403e315195be35c1bdb994361bf0cc59dd1c38323fa9d522e51b205ff271d2",
+  "submit_compute_job": "98221f682f5e558a11cf1734c49034ad864b8dd7f928421b4acf11d2932b5a33",
+  "submit_dispute_evidence": "d5d813c2d49c4bbb4f034a404fc8fcf2f1dd592ea17d513c74da3643bce45cea",
+  "submit_retropgf": "a4ea1ccbb76d94c84d15174c31502f4947930fde91b049f9d04c1c141631730e",
+  "subscribe": "67c4010788a6061db4c47732905f7bd87251a419bbedd03f8258ee1370a98b3b",
+  "swap_tokens": "39368969d122bf335872a60c3c52d536ad07b7bfbf2a7ad3abfbd774beba6450",
+  "timelock_queue": "3514422aba7bff8bd6e9a482b797326e972a62560d73f1b46dbcd8c851e4b0dc",
+  "tokenize_asset": "44f70acd4a09637c1966ce935a565a4ff7548c8235c7305c147cde122fbcf2a9",
+  "tournament_enter": "56b9850c1bd6545825436d47410766216cd248aec6c89cde27aae7788ba62783",
+  "track_product": "1b903fd670078475a417f50c91cd89fc1b3dd258e4ddd0a91a77dd82126ce981",
+  "track_spending": "726d00837b23fc01866705ef8ae3478761b4eae2b3cdb443251106a4ff06b6f7",
+  "training_data_sell": "49599d40a1cfc994424988875f2c2bbefc13a36216c7a5276c2a3c61b329bfd8",
+  "transfer_custody": "0c733c1c44d6252b815b03764d557e1f8746aa49dbdd63b76a8e8e63cdae5e25",
+  "transfer_game_asset": "69aab08a1ed6a5664130a521350b4f4c83a944fe4db2c1024d02f1ee739bfab7",
+  "transfer_ip": "52372af5c4fcccb62153f6de5cb3e531ae74c03e6e3e972ee3dc702a50523c8c",
+  "transfer_nft": "b5cfd5326f39dc5cfa3af92f68433e3b49bcb7727f51026faff221de460deed8",
+  "transfer_rwa_ownership": "a1164b747e36af2474a584a4acc66c86db571fe53ef858b41ff591bedcaf6e6c",
+  "transfer_stablecoin": "294eae702151eb1c8ba28ebdb5ae53f2dde88632984885f3c48444d1b138271e",
+  "trigger_refunds": "13c01df7a8c3f337c6da0db168f453019ddf7f65601f0378582970c13d9c0464",
+  "unstake": "149f770ba342ecdef67fc6ea60cfb6453e52c4ebbb9315df4e0350e779ef8e8c",
+  "update_agent": "e6a9bab293d86e4a82005d28ea38894c24c7e8f9079b9776d39fb4d25b910e7e",
+  "update_did": "ce0c9a0186e270040a9af7c0907bf3cec66f667693d36ed2514eeffc45f7ec28",
+  "update_product_status": "cd1158f23b6d6aca1a360e51b0d84eff0b31b67d29a19f06c27d8dd62ca3e362",
+  "update_social_profile": "0435f970a96b0495a4a2aab636702fc0578791c0c608b79cf2184e021306cc8f",
+  "verify_attestation": "afecd16d49638f4871f523af7ce3d6e2c997dc82c654ede1bf2b00b00c4bc3c9",
+  "verify_product": "a397a2e67998670521207ef4302923e537c9264beda0c3f4111df60311f9a097",
+  "vote": "a8a476b8866df78813d276d36d11ff316755a9b67ee152386e6643a14faa0733",
+  "vote_escrow": "fa562fa2c5317cf15c6a47d325cc39952966a9b656596221dea2042dd0a1eff4",
+  "withdraw_restake": "462bc12286c3948c4d8d4cc549e15294f23922a14ab0e75822addd0be3ca6bca",
+  "zk_proof_generate": "d974322a8b3c61dca427090d5d34d266ad73e516973e5275c9669ca8896d7281"
+ },
+ "digest_by_case": {
+  "anonymous": "0a0a1705d87ce7a94b6020ba3687e9023f50c87c2eef7dbf88be6caeaff33b72",
+  "broadcast": "cedfe2569f27968ffe9bf860e81521bae13ef2fa29cdb576e967aff391c57a05",
+  "no_method": "c5293fb1791a3b82f81ecf73a3996ec6d82091ec638b1f96829ec44925948d1e",
+  "not_implemented": "38ecd5984b563339b8489719940974e631b43a2cbc0fb3211f41e596342596d3",
+  "raises": "d9c86b47d2fc046ca6e855093d2673944c7a02514a0007a55b86684ab4e5773e",
+  "refused": "0f730f94f0969018edb50dd77762689bbb873b79a11fac01ad1aacd3321f5da3",
+  "settled": "68832f11a9fdd8f22a3b46c314f3f85ed00b2601a6bf83d54c4ecb65bb3b1c15",
+  "text_answer": "a671cdad5a21b9be7c677ad9bab943ab79e1941c4411bcca92e84d577cc755c9",
+  "unavailable": "c2ca75e075dd85e7b554eb195c673fbc24833543e359e79cb7385e61ade7849f",
+  "unbound": "f25e415ab0db3eed85e977e8f6ddefa5f0cbe919a85cddd54d57849967249a89",
+  "unconfirmed": "b06e63cafaf3498d8ca6dbd9c5eed84fbc2a01bb84134eb6387f23cd68ecd4c3"
+ },
+ "instrument": "tests/test_durable_off_and_shadow.py measure(), run in a separate interpreter importing runtime from a checkout of main: ServiceDispatcher.execute over a stand-in registry defined in that file (every method keyword-only, about half declaring caller_identity), no evidence-shadow sink, a stand-in feed engine attached",
+ "main_commit": "Merge audit-remediation-2026-07: a public sentence says what the code does, and a test reads it against the code",
+ "measured": {
+  "on_top_of": "Merge audit-remediation-2026-07: a public sentence says what the code does, and a test reads it against the code",
+  "with_uncommitted_changes": false
+ },
+ "measured_at": "main",
+ "rule": "engines.durable.mode off is byte-identical to main: every recorded field of every call below, recomputed on this branch with MATRIX_DURABLE_MODE unset and no engine installed, equals what main produced",
+ "sample": {
+  "achievement_attest": {
+   "anonymous": {
+    "attest_action": [
+     {
+      "action": "achievement_attest",
+      "actor": "",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "handoff",
+      "params": {
+       "amount": 5,
+       "caller_identity": "",
+       "caller_source": "handoff",
+       "marker": "anonymous",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "settled": true,
+       "status": "success",
+       "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "value_usd": 12.5
+      },
+      "service_name": "gaming"
+     }
+    ],
+    "attestation": [
+     {
+      "data": {
+       "action": "achievement_attest",
+       "actor": "",
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "actor_source": "handoff",
+       "params_hash": "<int as str>",
+       "service": "gaming",
+       "timestamp": "<int>"
+      },
+      "recipient": "0x0",
+      "schema_uid": ""
+     }
+    ],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"achievement_attest\", \"service\": \"gaming\", \"result\": {\"status\": \"success\", \"tx_hash\": \"0x2222222222222222222222222222222222222222222222222222222222222222\", \"settled\": true, \"value_usd\": 12.5}}",
+    "feed": [
+     {
+      "action": "achievement_attest",
+      "actor": "",
+      "component": null,
+      "detail": {
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "params": {
+        "amount": 5,
+        "caller_identity": "",
+        "caller_source": "handoff",
+        "marker": "anonymous",
+        "to": "0xabababababababababababababababababababab",
+        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+       },
+       "service": "gaming"
+      },
+      "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "value_usd": 12.5
+     }
+    ],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "",
+       "caller_source": "handoff",
+       "marker": "anonymous",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   },
+   "broadcast": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [
+     {
+      "action": "achievement_attest",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "broadcast",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "status": "submitted",
+       "tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "service_name": "gaming"
+     }
+    ],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"achievement_attest\", \"service\": \"gaming\", \"result\": {\"status\": \"submitted\", \"tx_hash\": \"0x3333333333333333333333333333333333333333333333333333333333333333\"}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "broadcast",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   },
+   "no_method": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": false, \"error\": \"Service 'gaming' has no method 'attest_achievement'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "not_implemented": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"not_implemented\", \"degraded\": true, \"error\": \"Action 'achievement_attest' is not implemented in this build: stand-in: not in this build\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "not_implemented",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   },
+   "raises": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": true, \"service\": \"gaming\", \"error\": \"Action 'achievement_attest' failed: stand-in service failed\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "raises",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   },
+   "refused": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"failure\", \"action\": \"achievement_attest\", \"service\": \"gaming\", \"result\": {\"status\": \"not_deployed\", \"error\": \"contracts are not deployed\"}}",
+    "feed": [],
+    "refusal_record": [
+     {
+      "action": "achievement_attest",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "refused",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "error": "contracts are not deployed",
+       "status": "not_deployed"
+      },
+      "service_name": "gaming"
+     }
+    ],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "refused",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   },
+   "settled": {
+    "attest_action": [
+     {
+      "action": "achievement_attest",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "settled",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "settled": true,
+       "status": "success",
+       "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "value_usd": 12.5
+      },
+      "service_name": "gaming"
+     }
+    ],
+    "attestation": [
+     {
+      "data": {
+       "action": "achievement_attest",
+       "actor": "0xabababababababababababababababababababab",
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "actor_source": "authenticated",
+       "params_hash": "<int as str>",
+       "service": "gaming",
+       "timestamp": "<int>"
+      },
+      "recipient": "0x0",
+      "schema_uid": ""
+     }
+    ],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"achievement_attest\", \"service\": \"gaming\", \"result\": {\"status\": \"success\", \"tx_hash\": \"0x2222222222222222222222222222222222222222222222222222222222222222\", \"settled\": true, \"value_usd\": 12.5}}",
+    "feed": [
+     {
+      "action": "achievement_attest",
+      "actor": "0xabababababababababababababababababababab",
+      "component": null,
+      "detail": {
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "params": {
+        "amount": 5,
+        "caller_identity": "0xabababababababababababababababababababab",
+        "caller_source": "authenticated",
+        "marker": "settled",
+        "to": "0xabababababababababababababababababababab",
+        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+       },
+       "service": "gaming"
+      },
+      "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "value_usd": 12.5
+     }
+    ],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "settled",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   },
+   "text_answer": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"achievement_attest\", \"service\": \"gaming\", \"result\": \"done\"}",
+    "feed": [],
+    "refusal_record": [
+     {
+      "action": "achievement_attest",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "text_answer",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": "done",
+      "service_name": "gaming"
+     }
+    ],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "text_answer",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   },
+   "unavailable": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_unavailable\", \"degraded\": true, \"service\": \"gaming\", \"error\": \"Service 'gaming' is currently unavailable: 'stand-in: gaming is not registered'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "unbound": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"validation\", \"degraded\": false, \"error\": \"Invalid parameters for achievement_attest: got an unexpected keyword argument 'not_a_parameter'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "unconfirmed": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [
+     {
+      "action": "achievement_attest",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "unconfirmed",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "broadcast": true,
+       "settled": false,
+       "status": "pending",
+       "tx_hash": "0x4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "service_name": "gaming"
+     }
+    ],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"unknown\", \"action\": \"achievement_attest\", \"service\": \"gaming\", \"result\": {\"status\": \"pending\", \"tx_hash\": \"0x4444444444444444444444444444444444444444444444444444444444444444\", \"settled\": false, \"broadcast\": true}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_achievement",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "unconfirmed",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "gaming"
+     }
+    ]
+   }
+  },
+  "ai_inference_verify": {
+   "anonymous": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"ai_inference_verify\", \"service\": \"agent_identity\", \"result\": {\"status\": \"success\", \"tx_hash\": \"0x2222222222222222222222222222222222222222222222222222222222222222\", \"settled\": true, \"value_usd\": 12.5}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "",
+       "caller_source": "handoff",
+       "marker": "anonymous",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   },
+   "broadcast": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"ai_inference_verify\", \"service\": \"agent_identity\", \"result\": {\"status\": \"submitted\", \"tx_hash\": \"0x3333333333333333333333333333333333333333333333333333333333333333\"}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "broadcast",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   },
+   "no_method": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": false, \"error\": \"Service 'agent_identity' has no method 'verify_inference'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "not_implemented": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"not_implemented\", \"degraded\": true, \"error\": \"Action 'ai_inference_verify' is not implemented in this build: stand-in: not in this build\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "not_implemented",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   },
+   "raises": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": true, \"service\": \"agent_identity\", \"error\": \"Action 'ai_inference_verify' failed: stand-in service failed\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "raises",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   },
+   "refused": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"failure\", \"action\": \"ai_inference_verify\", \"service\": \"agent_identity\", \"result\": {\"status\": \"not_deployed\", \"error\": \"contracts are not deployed\"}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "refused",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   },
+   "settled": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"ai_inference_verify\", \"service\": \"agent_identity\", \"result\": {\"status\": \"success\", \"tx_hash\": \"0x2222222222222222222222222222222222222222222222222222222222222222\", \"settled\": true, \"value_usd\": 12.5}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "settled",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   },
+   "text_answer": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"ai_inference_verify\", \"service\": \"agent_identity\", \"result\": \"done\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "text_answer",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   },
+   "unavailable": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_unavailable\", \"degraded\": true, \"service\": \"agent_identity\", \"error\": \"Service 'agent_identity' is currently unavailable: 'stand-in: agent_identity is not registered'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "unbound": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"validation\", \"degraded\": false, \"error\": \"Invalid parameters for ai_inference_verify: got an unexpected keyword argument 'not_a_parameter'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "unconfirmed": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"unknown\", \"action\": \"ai_inference_verify\", \"service\": \"agent_identity\", \"result\": {\"status\": \"pending\", \"tx_hash\": \"0x4444444444444444444444444444444444444444444444444444444444444444\", \"settled\": false, \"broadcast\": true}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "verify_inference",
+      "params": {
+       "amount": 5,
+       "caller_identity": "0xabababababababababababababababababababab",
+       "caller_source": "authenticated",
+       "marker": "unconfirmed",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "agent_identity"
+     }
+    ]
+   }
+  },
+  "create_attestation": {
+   "anonymous": {
+    "attest_action": [
+     {
+      "action": "create_attestation",
+      "actor": "",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "handoff",
+      "params": {
+       "amount": 5,
+       "marker": "anonymous",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "settled": true,
+       "status": "success",
+       "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "value_usd": 12.5
+      },
+      "service_name": "attestation"
+     }
+    ],
+    "attestation": [
+     {
+      "data": {
+       "action": "create_attestation",
+       "actor": "",
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "actor_source": "handoff",
+       "params_hash": "<int as str>",
+       "service": "attestation",
+       "timestamp": "<int>"
+      },
+      "recipient": "0x0",
+      "schema_uid": ""
+     }
+    ],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"create_attestation\", \"service\": \"attestation\", \"result\": {\"status\": \"success\", \"tx_hash\": \"0x2222222222222222222222222222222222222222222222222222222222222222\", \"settled\": true, \"value_usd\": 12.5}}",
+    "feed": [
+     {
+      "action": "create_attestation",
+      "actor": "",
+      "component": null,
+      "detail": {
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "params": {
+        "amount": 5,
+        "marker": "anonymous",
+        "to": "0xabababababababababababababababababababab",
+        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+       },
+       "service": "attestation"
+      },
+      "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "value_usd": 12.5
+     }
+    ],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "anonymous",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   },
+   "broadcast": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [
+     {
+      "action": "create_attestation",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "marker": "broadcast",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "status": "submitted",
+       "tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "service_name": "attestation"
+     }
+    ],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"create_attestation\", \"service\": \"attestation\", \"result\": {\"status\": \"submitted\", \"tx_hash\": \"0x3333333333333333333333333333333333333333333333333333333333333333\"}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "broadcast",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   },
+   "no_method": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": false, \"error\": \"Service 'attestation' has no method 'attest_for_caller'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "not_implemented": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"not_implemented\", \"degraded\": true, \"error\": \"Action 'create_attestation' is not implemented in this build: stand-in: not in this build\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "not_implemented",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   },
+   "raises": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": true, \"service\": \"attestation\", \"error\": \"Action 'create_attestation' failed: stand-in service failed\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "raises",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   },
+   "refused": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"failure\", \"action\": \"create_attestation\", \"service\": \"attestation\", \"result\": {\"status\": \"not_deployed\", \"error\": \"contracts are not deployed\"}}",
+    "feed": [],
+    "refusal_record": [
+     {
+      "action": "create_attestation",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "marker": "refused",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "error": "contracts are not deployed",
+       "status": "not_deployed"
+      },
+      "service_name": "attestation"
+     }
+    ],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "refused",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   },
+   "settled": {
+    "attest_action": [
+     {
+      "action": "create_attestation",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "marker": "settled",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "settled": true,
+       "status": "success",
+       "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "value_usd": 12.5
+      },
+      "service_name": "attestation"
+     }
+    ],
+    "attestation": [
+     {
+      "data": {
+       "action": "create_attestation",
+       "actor": "0xabababababababababababababababababababab",
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "actor_source": "authenticated",
+       "params_hash": "<int as str>",
+       "service": "attestation",
+       "timestamp": "<int>"
+      },
+      "recipient": "0x0",
+      "schema_uid": ""
+     }
+    ],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"create_attestation\", \"service\": \"attestation\", \"result\": {\"status\": \"success\", \"tx_hash\": \"0x2222222222222222222222222222222222222222222222222222222222222222\", \"settled\": true, \"value_usd\": 12.5}}",
+    "feed": [
+     {
+      "action": "create_attestation",
+      "actor": "0xabababababababababababababababababababab",
+      "component": null,
+      "detail": {
+       "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+       "params": {
+        "amount": 5,
+        "marker": "settled",
+        "to": "0xabababababababababababababababababababab",
+        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+       },
+       "service": "attestation"
+      },
+      "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "value_usd": 12.5
+     }
+    ],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "settled",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   },
+   "text_answer": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"success\", \"action\": \"create_attestation\", \"service\": \"attestation\", \"result\": \"done\"}",
+    "feed": [],
+    "refusal_record": [
+     {
+      "action": "create_attestation",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "marker": "text_answer",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": "done",
+      "service_name": "attestation"
+     }
+    ],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "text_answer",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   },
+   "unavailable": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_unavailable\", \"degraded\": true, \"service\": \"attestation\", \"error\": \"Service 'attestation' is currently unavailable: 'stand-in: attestation is not registered'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "unbound": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [],
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"validation\", \"degraded\": false, \"error\": \"Invalid parameters for create_attestation: got an unexpected keyword argument 'not_a_parameter'\"}",
+    "feed": [],
+    "refusal_record": [],
+    "service": []
+   },
+   "unconfirmed": {
+    "attest_action": [],
+    "attestation": [],
+    "broadcast_record": [
+     {
+      "action": "create_attestation",
+      "actor": "0xabababababababababababababababababababab",
+      "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "actor_source": "authenticated",
+      "params": {
+       "amount": 5,
+       "marker": "unconfirmed",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "result": {
+       "broadcast": true,
+       "settled": false,
+       "status": "pending",
+       "tx_hash": "0x4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "service_name": "attestation"
+     }
+    ],
+    "envelope": "{\"status\": \"ok\", \"call_outcome\": \"unknown\", \"action\": \"create_attestation\", \"service\": \"attestation\", \"result\": {\"status\": \"pending\", \"tx_hash\": \"0x4444444444444444444444444444444444444444444444444444444444444444\", \"settled\": false, \"broadcast\": true}}",
+    "feed": [],
+    "refusal_record": [],
+    "service": [
+     {
+      "method": "attest_for_caller",
+      "params": {
+       "amount": 5,
+       "marker": "unconfirmed",
+       "to": "0xabababababababababababababababababababab",
+       "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "service": "attestation"
+     }
+    ]
+   }
+  }
+ },
+ "scope": "every ACTION_MAP name x every case in 'cases', plus one name ACTION_MAP does not have. Per call: the envelope with elapsed_ms removed (every other byte kept), the arguments the service received, every _attest_action, _record_broadcast and _attest_refusal call, what the attestation service's attest received (timestamp and the salted params_hash replaced by their shape) and every feed ingest's keyword arguments. digest_by_action is sha256 over one action's records for all cases, digest_by_case over one case's records for all actions; 'sample' holds three actions' records in full",
+ "state_modifying": 184,
+ "totals": {
+  "anonymous": {
+   "attest_action": 184,
+   "attestation": 184,
+   "broadcast_record": 0,
+   "envelopes": {
+    "ok/success/-": 253
+   },
+   "feed": 184,
+   "refusal_record": 0,
+   "service": 253
+  },
+  "broadcast": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 184,
+   "envelopes": {
+    "ok/success/-": 253
+   },
+   "feed": 0,
+   "refusal_record": 0,
+   "service": 253
+  },
+  "no_method": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 0,
+   "envelopes": {
+    "error/failure/service_error": 253
+   },
+   "feed": 0,
+   "refusal_record": 0,
+   "service": 0
+  },
+  "not_implemented": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 0,
+   "envelopes": {
+    "error/failure/not_implemented": 253
+   },
+   "feed": 0,
+   "refusal_record": 0,
+   "service": 253
+  },
+  "raises": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 0,
+   "envelopes": {
+    "error/failure/service_error": 253
+   },
+   "feed": 0,
+   "refusal_record": 0,
+   "service": 253
+  },
+  "refused": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 0,
+   "envelopes": {
+    "ok/failure/-": 253
+   },
+   "feed": 0,
+   "refusal_record": 184,
+   "service": 253
+  },
+  "settled": {
+   "attest_action": 184,
+   "attestation": 184,
+   "broadcast_record": 0,
+   "envelopes": {
+    "ok/success/-": 253
+   },
+   "feed": 184,
+   "refusal_record": 0,
+   "service": 253
+  },
+  "text_answer": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 0,
+   "envelopes": {
+    "ok/success/-": 253
+   },
+   "feed": 0,
+   "refusal_record": 184,
+   "service": 253
+  },
+  "unavailable": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 0,
+   "envelopes": {
+    "error/failure/service_unavailable": 253
+   },
+   "feed": 0,
+   "refusal_record": 0,
+   "service": 0
+  },
+  "unbound": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 0,
+   "envelopes": {
+    "error/failure/validation": 253
+   },
+   "feed": 0,
+   "refusal_record": 0,
+   "service": 0
+  },
+  "unconfirmed": {
+   "attest_action": 0,
+   "attestation": 0,
+   "broadcast_record": 184,
+   "envelopes": {
+    "ok/unknown/-": 253
+   },
+   "feed": 0,
+   "refusal_record": 0,
+   "service": 253
+  }
+ },
+ "unknown_action": {
+  "available_actions_digest": "93b953db2ace4fc9926454a736226d41ce1b44ea0c96ac72273da974c37b43e2",
+  "digest": "dfe3dfe541a141feba4def40bf623622eb8285cb2146c3040823c9fd8ff45617",
+  "envelope_without_available_actions": {
+   "call_outcome": "failure",
+   "degraded": false,
+   "error": "Unknown action 'no_such_action_anywhere'",
+   "error_category": "not_found",
+   "status": "error"
+  }
+ }
+}

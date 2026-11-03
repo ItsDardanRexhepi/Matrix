@@ -96,22 +96,42 @@ class FakeWeb3Manager:
         self.w3 = _FakeW3(balance, receipt, connected) if connected else None
 
 
-def _settled_receipt(escrow_id: str, buyer: str, escrow_addr: str) -> dict:
-    """Build a receipt carrying a genuine Settled(escrowId, buyer, …) log from
-    the escrow contract — what confirm_settlement now REQUIRES to advance."""
+async def _settled_receipt(svc, eid: str, *, escrow_id: str | None = None,
+                           escrow_addr: str = ESCROW) -> dict:
+    """The receipt a genuine lockAndSettle of escrow *eid* produces — what
+    confirm_settlement REQUIRES to advance: from the escrow contract, the
+    Settled log with all four topics (escrow id, buyer, seller) and the data
+    word (amount, deed token, readiness digest); from the deed contract, the
+    deed's Transfer from the seller to the buyer. *escrow_id* and
+    *escrow_addr* replace the escrow id the log names and the contract that
+    emits it, for the cases that must be refused."""
     import hashlib as _h
+    import json as _json
+    from eth_abi import encode as _abi_encode
     from web3 import Web3
-    topic0 = Web3.keccak(text="Settled(bytes32,address,address,uint256,uint256,bytes32)")
-    escrow_id_b32 = _h.sha256(escrow_id.encode()).digest()
-    buyer_topic = bytes(12) + Web3.to_bytes(hexstr=Web3.to_checksum_address(buyer))
-    seller_topic = bytes(32)
+    escrow = await svc.get_escrow(eid)
+    prop = await svc.get_property(escrow["property_id"])
+
+    def _topic(a):
+        return bytes(12) + Web3.to_bytes(hexstr=Web3.to_checksum_address(a))
+
+    token = int(prop["deed_token_id"])
+    settled = Web3.keccak(text="Settled(bytes32,address,address,uint256,uint256,bytes32)")
+    transfer = Web3.keccak(text="Transfer(address,address,uint256)")
+    digest = _h.sha256(_json.dumps(escrow["readiness_snapshot"], sort_keys=True).encode()).digest()
     return {
         "status": 1,
         "to": Web3.to_checksum_address(escrow_addr),
-        "logs": [{
-            "address": Web3.to_checksum_address(escrow_addr),
-            "topics": [bytes(topic0), escrow_id_b32, buyer_topic, seller_topic],
-        }],
+        "logs": [
+            {"address": Web3.to_checksum_address(DEED),
+             "topics": [bytes(transfer), _topic(SELLER), _topic(BUYER), token.to_bytes(32, "big")],
+             "data": b""},
+            {"address": Web3.to_checksum_address(escrow_addr),
+             "topics": [bytes(settled), _h.sha256((escrow_id or eid).encode()).digest(),
+                        _topic(BUYER), _topic(SELLER)],
+             "data": _abi_encode(["uint256", "uint256", "bytes32"],
+                                 [int(escrow["amount_wei"]), token, digest])},
+        ],
     }
 
 
@@ -397,7 +417,7 @@ async def test_confirm_settlement_walks_machine_only_on_real_success(tmp_path):
     svc, prop, eid = await _ready_purchase(tmp_path)
     # the receipt must carry a genuine Settled(escrowId, buyer,…) log from OUR
     # contract — only THEN does state advance.
-    svc._web3.w3.eth._receipt = _settled_receipt(eid, BUYER, ESCROW)
+    svc._web3.w3.eth._receipt = await _settled_receipt(svc, eid)
 
     result = await svc.confirm_settlement(eid, "0x" + "ee" * 32)
     assert result["status"] == "settled"
@@ -428,7 +448,7 @@ async def test_confirm_rejects_unrelated_successful_tx(tmp_path):
 async def test_confirm_rejects_settled_log_for_a_different_escrow(tmp_path):
     # A real Settled log, but for a DIFFERENT escrow id — must not settle THIS one.
     svc, prop, eid = await _ready_purchase(tmp_path)
-    svc._web3.w3.eth._receipt = _settled_receipt("resc_someone_else", BUYER, ESCROW)
+    svc._web3.w3.eth._receipt = await _settled_receipt(svc, eid, escrow_id="resc_someone_else")
     result = await svc.confirm_settlement(eid, "0x" + "ab" * 32)
     assert result["status"] == "not_settlement"
     assert (await svc.get_escrow(eid))["state"] == "initiated"
@@ -440,7 +460,7 @@ async def test_confirm_rejects_settled_log_from_wrong_contract(tmp_path):
     # not our PropertyEscrow — must not settle.
     svc, prop, eid = await _ready_purchase(tmp_path)
     rogue = "0x" + "99" * 20
-    svc._web3.w3.eth._receipt = _settled_receipt(eid, BUYER, rogue)
+    svc._web3.w3.eth._receipt = await _settled_receipt(svc, eid, escrow_addr=rogue)
     result = await svc.confirm_settlement(eid, "0x" + "cd" * 32)
     assert result["status"] == "not_settlement"
     assert (await svc.get_escrow(eid))["state"] == "initiated"
@@ -502,7 +522,7 @@ def test_transition_table_is_the_specified_machine():
 @pytest.mark.asyncio
 async def test_recording_complete_closes_the_bridge(tmp_path):
     svc, prop, eid = await _ready_purchase(tmp_path)
-    svc._web3.w3.eth._receipt = _settled_receipt(eid, BUYER, ESCROW)
+    svc._web3.w3.eth._receipt = await _settled_receipt(svc, eid)
     await svc.confirm_settlement(eid, "0x" + "ee" * 32)
 
     done = await svc.mark_recording_complete(eid, recording_reference="DOC-2026-1")
@@ -518,7 +538,7 @@ async def test_duplicate_confirms_settle_exactly_once(tmp_path):
     # state guard if it runs after the first completes. Either way: settled once.
     import asyncio
     svc, prop, eid = await _ready_purchase(tmp_path)
-    svc._web3.w3.eth._receipt = _settled_receipt(eid, BUYER, ESCROW)
+    svc._web3.w3.eth._receipt = await _settled_receipt(svc, eid)
     results = await asyncio.gather(
         svc.confirm_settlement(eid, "0x" + "ee" * 32),
         svc.confirm_settlement(eid, "0x" + "ee" * 32),

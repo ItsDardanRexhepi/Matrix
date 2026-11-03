@@ -2,7 +2,7 @@
 Insurance — on-chain insurance policy management on Base L2.
 
 Create policies, file claims, process payouts via smart contracts.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -23,7 +23,7 @@ class Insurance(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "On-chain insurance: create policies, file claims, process payouts. Gas covered by platform."
+        return "On-chain insurance: create policies, file claims, process payouts. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -72,6 +72,7 @@ class Insurance(BlockchainInterface):
                 "created_at": int(time.time()),
             },
             recipient=params.get("beneficiary", "0x0000000000000000000000000000000000000000"),
+            operation="insurance.create_policy",
         )
         return json.dumps(result, indent=2, default=str)
 
@@ -87,6 +88,7 @@ class Insurance(BlockchainInterface):
                 "claim_details": params.get("claim_details", {}),
                 "filed_at": int(time.time()),
             },
+            operation="insurance.file_claim",
         )
         return json.dumps(result, indent=2, default=str)
 

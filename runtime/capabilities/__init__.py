@@ -3,8 +3,8 @@ The Matrix Capability Framework.
 
 A thin, data-driven layer on top of the ServiceRegistry + ServiceDispatcher
 that turns the platform from a flat service list into discrete Web3
-capabilities in 21 categories (195 in catalog.py as of this writing), without
-file sprawl.
+capabilities grouped by category (catalog.py holds the list), without file
+sprawl.
 
 Public API:
     from runtime.capabilities import CapabilityRegistry, catalog

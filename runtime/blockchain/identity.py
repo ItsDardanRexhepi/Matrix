@@ -2,13 +2,14 @@
 Identity — on-chain identity verification and management.
 
 Supports ENS-style name resolution, identity attestations via EAS,
-and wallet-to-identity mapping. All gas covered by the platform.
+and wallet-to-identity mapping. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import SponsorshipDenied
 from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class Identity(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "On-chain identity verification: resolve names, create identity attestations, manage wallet mappings. Gas covered by platform."
+        return "On-chain identity verification: resolve names, create identity attestations, manage wallet mappings. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -69,7 +70,7 @@ class Identity(BlockchainInterface):
                 code="capability_error")
 
     async def _register(self, params: dict) -> str:
-        """Register an identity attestation on-chain via EAS. Gas covered by platform."""
+        """Register an identity attestation on-chain via EAS. Gas is paid by the platform within its sponsorship policy."""
         name = params.get("name", "")
         address = params.get("address", self.platform_wallet)
         claims = params.get("claims", {})
@@ -89,6 +90,7 @@ class Identity(BlockchainInterface):
                     "registered_at": int(time.time()),
                 },
                 recipient=address if address else "0x0000000000000000000000000000000000000000",
+                operation="identity.register",
             )
 
             return json.dumps({
@@ -100,6 +102,10 @@ class Identity(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2, default=str)
 
+        except SponsorshipDenied:
+            # A refusal by the sponsorship policy, not a configuration fault:
+            # the tool dispatcher renders its reason.
+            raise
         except Exception as e:
             return json.dumps({
                 "status": "failed",

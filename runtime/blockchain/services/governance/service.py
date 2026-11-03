@@ -46,6 +46,22 @@ _PROPOSAL_TYPE_MAP: dict[str, str] = {
 }
 
 
+class AlreadyVoted(ValueError):
+    """The voter already has a vote on this proposal; that vote stands.
+
+    Still a ValueError, so every surface that already answers a ValueError as
+    the caller's 400 keeps doing so. It adds `code`, which the /api/v1 route
+    carries as `error_code`: a client that must tell "you already voted" (a
+    vote IS on record) from any other refusal (none is) reads the code, not
+    the sentence. The MTRX app has told this refusal apart by searching the
+    message for "already voted", so the sentence is kept word for word:
+    rewording it would change what a build that still searches it tells the
+    user.
+    """
+
+    code = "already_voted"
+
+
 class GovernanceService:
     """Main platform governance service.
 
@@ -240,7 +256,7 @@ class GovernanceService:
         # Prevent double voting
         vote_key = (proposal_id, voter)
         if vote_key in self._voter_registry:
-            raise ValueError(f"Voter {voter} has already voted on proposal {proposal_id}")
+            raise AlreadyVoted(f"Voter {voter} has already voted on proposal {proposal_id}")
 
         # ── CLUSTER A, STEP 1: the weight is no longer the caller's to declare.
         #

@@ -16,6 +16,7 @@ from runtime.blockchain.services.ip_royalties.ip_registry import IPRegistry
 from runtime.blockchain.services.ip_royalties.royalty_enforcement import IPRoyaltyEnforcement
 from runtime.blockchain.services.ip_royalties.distribution import RoyaltyDistribution
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ class IPRoyaltyService:
             Updated IP record.
         """
         ip_record = await self._registry.get(ip_id)
-        if ip_record["owner"] != from_owner:
+        if not same_caller(ip_record["owner"], from_owner):
             raise ValueError(f"IP {ip_id} is not owned by {from_owner}")
 
         ip_record["owner"] = to_owner

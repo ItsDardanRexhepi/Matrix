@@ -11,6 +11,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 VALID_DECISIONS = {"approved", "denied"}
@@ -53,7 +55,7 @@ class AppealProcess:
         # Check appeal limit
         existing = [
             a for a in self._appeals.values()
-            if a["listing_id"] == listing_id and a["seller"] == seller
+            if a["listing_id"] == listing_id and same_caller(a["seller"], seller)
         ]
         if len(existing) >= self._max_appeals_per_listing:
             raise ValueError(

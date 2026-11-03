@@ -15,7 +15,7 @@ import uuid
 
 import aiohttp
 
-from runtime.models.model_interface import ModelInterface, ModelResponse
+from runtime.models.model_interface import ModelInterface, ModelResponse, tool_function
 
 logger = logging.getLogger(__name__)
 
@@ -140,17 +140,7 @@ class OllamaClient(ModelInterface):
         return formatted
 
     def _format_tools(self, tools: list[dict]) -> list[dict]:
-        formatted = []
-        for tool in tools:
-            formatted.append({
-                "type": "function",
-                "function": {
-                    "name": tool.get("name", ""),
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("parameters", {}),
-                },
-            })
-        return formatted
+        return [{"type": "function", "function": tool_function(tool)} for tool in tools]
 
     def _extract_tool_calls(self, message: dict) -> list[dict] | None:
         raw_calls = message.get("tool_calls")

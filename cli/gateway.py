@@ -6,14 +6,19 @@ import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
+from cli.home import checkout, home, module_command
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PID_FILE = PROJECT_ROOT / "data" / "gateway.pid"
-LOG_FILE = PROJECT_ROOT / "data" / "gateway.log"
-CONFIG_FILE = PROJECT_ROOT / "matrix.config.json"
+# A clone keeps these at its root, as it always has; an installed package
+# keeps them in ~/.matrix, or $MATRIX_HOME (cli/home.py says why). The gateway
+# runs with that folder as its working directory, so it reads the config, the
+# .env and data/ there.
+CHECKOUT = checkout()
+HOME_DIR = home()
+PID_FILE = HOME_DIR / "data" / "gateway.pid"
+LOG_FILE = HOME_DIR / "data" / "gateway.log"
+CONFIG_FILE = HOME_DIR / "matrix.config.json"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +81,21 @@ def _get_host_port() -> tuple[str, int]:
     return gw.get("host", "0.0.0.0"), gw.get("port", 18790)
 
 
+def _server_command() -> list[str]:
+    """How the gateway process is started.
+
+    From a clone: its .venv's interpreter when there is one, as always, and
+    `-m gateway.server` resolved from the clone's root. From an installed
+    package: the interpreter this command runs under, with the install's
+    folder kept off the import path (cli/home.py).
+    """
+    if CHECKOUT is not None:
+        venv_python = CHECKOUT / ".venv" / "bin" / "python3"
+        python = str(venv_python) if venv_python.exists() else sys.executable
+        return [python, "-m", "gateway.server"]
+    return module_command("gateway.server")
+
+
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 def cmd_start(args) -> None:
@@ -88,23 +108,23 @@ def cmd_start(args) -> None:
 
     if not CONFIG_FILE.exists():
         _warn("No configuration found.")
-        _info(f"Run {CYAN}matrix setup{NC} first, or create matrix.config.json")
+        _info(f"Run {CYAN}matrix setup{NC} first, or create {CONFIG_FILE}")
         sys.exit(1)
 
     host, port = _get_host_port()
-
-    # Activate venv if present
-    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python3"
-    python = str(venv_python) if venv_python.exists() else sys.executable
+    command = _server_command()
 
     if args.daemon:
         # Background mode
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         log_fd = open(LOG_FILE, "a")
 
+        # A daemon reads nothing: it does not keep the terminal's input, or
+        # the input of the script that started it, open after this returns.
         proc = subprocess.Popen(
-            [python, "-m", "gateway.server"],
-            cwd=str(PROJECT_ROOT),
+            command,
+            cwd=str(HOME_DIR),
+            stdin=subprocess.DEVNULL,
             stdout=log_fd,
             stderr=log_fd,
             start_new_session=True,
@@ -140,8 +160,8 @@ def cmd_start(args) -> None:
             env["MATRIX_LOG_LEVEL"] = "WARNING"
 
         proc = subprocess.Popen(
-            [python, "-m", "gateway.server"],
-            cwd=str(PROJECT_ROOT),
+            command,
+            cwd=str(HOME_DIR),
             stdout=log_fd,
             stderr=subprocess.PIPE,
             env=env,

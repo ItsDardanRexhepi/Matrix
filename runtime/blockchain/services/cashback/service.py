@@ -160,9 +160,30 @@ class CashbackService:
         told where the money came from, and nothing moved. The record was the
         only evidence the debt had ever existed, and the record said it was paid.
 
-        The balance is now left standing until something settles the claim, the
-        response says plainly that nothing was sent, and a second press returns
-        the SAME open claim rather than minting another id for the same money.
+        The balance is now left standing until something settles the claim, and
+        the response says plainly that nothing was sent.
+
+        EACH CLAIM COVERS ITS OWN TRANCHE. No dollar is covered by two open
+        claims, so open claims never add up to more than the balance:
+
+          * a second press with nothing new accrued returns the SAME open claim
+            rather than minting another id for the same money — a settlement
+            process reading the records must not pay one balance twice;
+          * cashback that accrued AFTER the open claim gets a claim of its own,
+            for the difference. The first version of the fix above returned the
+            first open claim forever, so a user who had since earned another
+            $500 was answered with the old claim's $200, and that $500 never
+            got a claim record at all.
+
+        NOT EVERY DOLLAR HAS A CLAIM. Cashback nobody has pressed claim for has
+        none, and a remainder under ``min_claim_amount`` earned since the last
+        claim gets none until more accrues: the press returns the open claim
+        instead. Right after a press, open claims fall short of the balance by
+        less than the minimum claim.
+
+        ``cashback_remaining`` on a returned claim is the balance outstanding
+        NOW — every open claim together plus any remainder no claim covers yet
+        — not a figure frozen when the claim was first written.
         """
         if not user:
             raise ValueError("user is required")
@@ -182,13 +203,16 @@ class CashbackService:
                 f"Available: ${available:.2f}"
             )
 
-        # AN OPEN CLAIM IS NOT CLAIMED TWICE. Without this, every call minted a
-        # new claim id for the same money, and a settlement process reading the
-        # records would pay the same balance as many times as the user pressed
-        # the button.
-        pending = self._open_claim(data)
-        if pending is not None:
-            return dict(pending)
+        open_claims = self._open_claims(data)
+        already_claimed = round(sum(c["amount_requested"] for c in open_claims), 8)
+        unclaimed = round(available - already_claimed, 8)
+
+        # AN OPEN CLAIM IS NOT CLAIMED TWICE. Nothing new has accrued beyond
+        # what the open claims already cover, so the latest of them is the
+        # answer — with today's outstanding balance, not the one it was
+        # written with.
+        if open_claims and unclaimed < self.config["min_claim_amount"]:
+            return {**open_claims[-1], "cashback_remaining": available}
 
         claim_id = f"claim_{uuid.uuid4().hex[:12]}"
         claim = {
@@ -199,7 +223,9 @@ class CashbackService:
             "value_moved": False,
             "user": user,
             "claim_id": claim_id,
-            "amount_requested": available,
+            # This claim's own tranche: everything available that no open
+            # claim already covers.
+            "amount_requested": unclaimed,
             "payable_from": self.config["platform_revenue_wallet"],
             "cashback_remaining": available,
             "requested_at": time.time(),
@@ -213,18 +239,16 @@ class CashbackService:
         data.setdefault("claims", []).append(claim)
 
         logger.info(
-            "User %s requested $%.2f cashback — recorded, NOT paid (claim=%s)",
-            user, available, claim_id,
+            "User %s requested $%.2f cashback — recorded, NOT paid (claim=%s, "
+            "outstanding=$%.2f)",
+            user, unclaimed, claim_id, available,
         )
         return dict(claim)
 
     @staticmethod
-    def _open_claim(data: dict) -> dict | None:
-        """The user's unsettled claim, if one is already on the books."""
-        for claim in reversed(data.get("claims", [])):
-            if not claim.get("settled"):
-                return claim
-        return None
+    def _open_claims(data: dict) -> list[dict]:
+        """The user's unsettled claims, oldest first."""
+        return [c for c in data.get("claims", []) if not c.get("settled")]
 
     async def get_spending_summary(self, user: str) -> dict:
         """Get a detailed spending summary for the current year.

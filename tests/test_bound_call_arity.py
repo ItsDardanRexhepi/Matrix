@@ -5,7 +5,8 @@ proves exactly the intended names left. This is the mechanical half of that rule
 — the half that runs on every commit instead of being remembered.
 
 THE NEIGHBOUR-DELETION TRAP, THIRD INSTANCE. Deleting a method takes whatever is
-lexically adjacent to it if the hunk boundary lands wrong. In 3e931d4 the
+lexically adjacent to it if the hunk boundary lands wrong. In the commit "Domain
+11 Cluster B: four unbacked authority claims, five doors, one store fix" the
 `migrate_members` hunk ended on the `@staticmethod` decorator belonging to the
 NEXT method, so `_calculate_voting_power` silently became an instance method and
 `self._calculate_voting_power(a, b, c)` began passing four arguments to three
@@ -149,7 +150,8 @@ def test_no_bound_call_passes_an_impossible_argument_count():
 
 
 def test_the_control_sees_the_defect_it_was_built_for():
-    """PROVEN IN BOTH DIRECTIONS — reproducing the exact 3e931d4 regression."""
+    """PROVEN IN BOTH DIRECTIONS — reproducing the exact regression of the commit
+    "Domain 11 Cluster B: four unbacked authority claims, five doors, one store fix"."""
 
     def mismatches(src: str) -> bool:
         tree = ast.parse(src.strip())

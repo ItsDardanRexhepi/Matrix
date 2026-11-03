@@ -1,7 +1,8 @@
 """22-C — `created_by`/`set_by` were written and never compared.
 
-MEASURED at pin 84a6c3e through the real ServiceDispatcher, under THE SHIPPED
-CONFIG (`set_nft_rights` is one of only 6 of 17 nft actions that executes):
+MEASURED at the commit "21-S: 21-I's offload moved the cost rather than
+removing it" through the real ServiceDispatcher, under THE SHIPPED CONFIG
+(`set_nft_rights` is one of only 6 of 17 nft actions that executes):
 
     grant #1, caller_identity='0xVICTIM'
         -> created_by='0xVICTIM', rights.commercial.holder='0xVICTIM'

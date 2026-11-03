@@ -9,11 +9,13 @@ THE CLAIM, made in three places and read by no code:
   matrix.config.json.example `"policy": {"allowed_actions": [...],
                                   "daily_cap_usd": 50}`
 
-At be42685 the only policy key any code read was `allowed_actions`, in one
-handler. `daily_cap_usd` appeared exactly once in the tree — in the example
-config — with no reader. A grep across runtime/blockchain/ for a caller
-identity, a cap, or an allowlist returned nothing, while 32 call sites in 13
-files signed transactions with `bc["paymaster_private_key"]`.
+At the commit "Close two §CD sibling axes: reserved dispatch arguments, and a
+gate that failed to construct" the only policy key any code read was
+`allowed_actions`, in one handler. `daily_cap_usd` appeared exactly once in the
+tree — in the example config — with no reader. A grep across
+runtime/blockchain/ for a caller identity, a cap, or an allowlist returned
+nothing, while 32 call sites in 13 files signed transactions with
+`bc["paymaster_private_key"]`.
 
 So the platform's signer would approve sponsorship until the deposit was empty,
 and the tool axis would sign whatever the model composed. This file is the

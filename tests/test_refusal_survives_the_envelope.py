@@ -26,7 +26,7 @@ the service uses to report ITS outcome, and the reader cannot tell them apart.
 The rule this file pins is that it does not have to: a wrapper may report on the
 wrapping, and it may never report on what it wraps.
 
-The same assumption, away from the envelope, in three more places:
+The same assumption, away from the envelope, in four more places:
 
   * the HTTP live-feed ripple published a returned refusal as an executed action;
   * account deletion answered ``{"success": true}`` after swallowing the
@@ -226,9 +226,11 @@ async def _invoke(capability_id: str, params: dict | None = None):
 
 
 async def test_the_invoke_route_does_not_answer_200_ok_over_a_relayed_refusal():
-    """`place_limit_order` reaches `auctions`, which is not deployed here."""
-    status, body = await _invoke("place_limit_order", {
-        "auction_id": "a1", "bidder": "0xabc", "amount": 1.0,
+    """`create_dao` reaches `dao_management`, which is not deployed here. (This
+    used `place_limit_order`, which the catalog marks unavailable; the route
+    runs no capability so marked, so it relays nothing for it.)"""
+    status, body = await _invoke("create_dao", {
+        "creator": "0x" + "ab" * 20, "name": "Builders", "config": {},
     })
     assert body.get("result"), f"premise changed — nothing was relayed: {body}"
     assert report_of(body) == FAILURE, f"premise changed — not a refusal: {body}"
@@ -582,9 +584,11 @@ async def test_an_unconfigured_provider_is_not_reachable_either(module_name, cla
 def test_no_exemption_claims_a_call_site_meters_it_unless_one_does():
     """§CT. ``UNMETERED_PLATFORM_OPERATIONS`` is a reviewable list, and its
     entries are claims. ``web3.platform_account`` claimed "every USE of it is a
-    call site metered on its own" — ``Web3Manager.send_transaction`` signs with
-    that handle directly and is the ONLY signing path the 45 services have, so
-    no use of it was metered anywhere."""
+    call site metered on its own" — ``Web3Manager.send_transaction`` signed with
+    that handle directly and is the signing path the services send through (not
+    their only one: contract_conversion's deploy and the attestation service's
+    revoke and time-critical write sign on their own), so none of the
+    signatures it made for them was metered anywhere."""
     from runtime.blockchain.sponsorship import UNMETERED_PLATFORM_OPERATIONS
     assert "web3.platform_account" not in UNMETERED_PLATFORM_OPERATIONS, (
         "the exemption that covers every service transaction is still listed; "
@@ -593,8 +597,8 @@ def test_no_exemption_claims_a_call_site_meters_it_unless_one_does():
 
 
 async def test_a_service_transaction_is_metered_against_the_cap(tmp_path, monkeypatch):
-    """The property, not the plumbing: send a transaction through the one path
-    all 45 services use and assert the sponsorship ledger recorded the spend."""
+    """The property, not the plumbing: send a transaction through the path the
+    services send through and assert the sponsorship ledger recorded the spend."""
     from runtime.blockchain.sponsorship import SponsorshipPolicy, set_caller_identity
     from runtime.blockchain.web3_manager import Web3Manager
 

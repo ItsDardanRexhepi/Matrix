@@ -60,6 +60,64 @@ def is_placeholder_value(value: Any) -> bool:
     return stripped.startswith("YOUR_") or stripped.upper().startswith("YOUR_")
 
 
+# RPC methods whose request changes state. A POST of one whose reply was lost
+# may have been carried out, so it is never sent again on the caller's behalf.
+_NEVER_RESENT = frozenset({"eth_sendRawTransaction", "eth_sendTransaction"})
+
+
+def broadcast_safe_http_provider(rpc_url: str, *, timeout: float | None = None):
+    """A web3 HTTP provider that sends a raw transaction ONCE.
+
+    web3 7's HTTPProvider gives every method on its default allowlist up to
+    five attempts, the first included, after a timeout, a connection error or
+    an HTTP error, and that list includes eth_sendRawTransaction. A first POST
+    can deliver the signed bytes and lose its reply; the retry then sends the
+    same bytes, and the caller reads the node's answer to a LATER delivery.
+    Once the first is mined that answer is "nonce too low": a send whose bytes
+    were taken reads as refused. The sponsorship ledger once read it so and
+    handed back budget for gas the platform had paid; it no longer reads any
+    answer to a send, but a caller reporting what became of its send still
+    reads one.
+
+    Everything else keeps web3's retry: the same errors, the same count and
+    back-off, and every read on its list. A send that times out raises, and its
+    caller treats it as a send whose fate is unknown.
+
+    Every HTTP provider the platform builds under runtime/ and gateway/ comes
+    from here; tests/test_a_signature_is_settled_or_given_back.py fails on one
+    built anywhere else.
+    """
+    from web3.providers.rpc import HTTPProvider
+    from web3.providers.rpc.utils import ExceptionRetryConfiguration
+
+    kwargs: dict[str, Any] = {}
+    if timeout is not None:
+        kwargs["request_kwargs"] = {"timeout": timeout}
+    provider = HTTPProvider(rpc_url, **kwargs)
+    default = provider.exception_retry_configuration
+    if default is not None:
+        provider.exception_retry_configuration = ExceptionRetryConfiguration(
+            errors=default.errors,
+            retries=default.retries,
+            backoff_factor=default.backoff_factor,
+            method_allowlist=[m for m in default.method_allowlist
+                              if m not in _NEVER_RESENT],
+        )
+    return provider
+
+
+def resolve_paymaster_key(config: dict | None) -> str:
+    """The platform signing key under either of its two accepted names.
+
+    One resolver for Web3Manager, the sponsorship signer and the gas-policy
+    description, so what a user is told about sponsorship reads the key the
+    same way the code that signs does.
+    """
+    bc = (config or {}).get("blockchain", {}) if isinstance(config, dict) else {}
+    bc = bc if isinstance(bc, dict) else {}
+    return str(bc.get("paymaster_private_key") or bc.get("paymaster_key") or "")
+
+
 #: Set on an exception raised while the signed transaction was being handed
 #: to the node. What such an exception says about the transaction is nothing:
 #: a read timeout, a reset connection or a reply that does not decode can all
@@ -99,11 +157,7 @@ class Web3Manager:
         self.rpc_url: str = bc.get("rpc_url", "") or ""
         self.chain_id: int = int(bc.get("chain_id", 84532) or 84532)
         self.platform_wallet: str = bc.get("platform_wallet", "") or ""
-        self.paymaster_key: str = (
-            bc.get("paymaster_private_key")
-            or bc.get("paymaster_key")
-            or ""
-        )
+        self.paymaster_key: str = resolve_paymaster_key(self.config)
         self.eas_contract: str = bc.get("eas_contract", "") or ""
         self.eas_schema: str = bc.get("eas_schema", "") or ""
         self.network: str = bc.get("network", "base-sepolia") or "base-sepolia"
@@ -124,7 +178,7 @@ class Web3Manager:
             return
 
         try:
-            provider = Web3.HTTPProvider(self.rpc_url, request_kwargs={"timeout": 10})
+            provider = broadcast_safe_http_provider(self.rpc_url, timeout=10)
             self.w3 = Web3(provider)
             if self.w3.is_connected():
                 self.available = True
@@ -256,10 +310,17 @@ class Web3Manager:
         This returned ``unmetered_platform_signer(key, "web3.platform_account")``,
         and that exemption's stated justification was that "every USE of it is a
         call site metered on its own". None was. `send_transaction` below signed
-        with it, and `send_transaction` is the only signing path the 45 services
-        in `services/**` have, so every platform signature they produce was
-        exempt from the D-045 cap the repo documents as enforced. The
-        exemption's claim was the whole of its argument and nothing checked it.
+        with it, and `send_transaction` is the signing path the services in
+        `services/**` use, so every platform signature it produced was exempt
+        from the D-045 cap the repo documents as enforced. (It is not their only
+        one: the conversion pipeline's deploy and the attestation service's
+        revoke sign and broadcast on their own, through the metered signer, and
+        so do the attestation service's time-critical write and its queued
+        writes, metered when a caller asks for them and the listed
+        `eas.attest_time_critical` and `eas.attest` only as the platform's own
+        record. The queued writes go through the EAS client, as NeoSafe's
+        revenue record does, the listed `eas.attest`.) The exemption's claim was
+        the whole of its argument and nothing checked it.
 
         35 call sites want `.address` for a transaction's `from`, and those are
         unchanged. A signature now comes from `signer()`, which is metered.
@@ -287,8 +348,9 @@ class Web3Manager:
         ledger record; the caller identity comes from the ContextVar the tool
         dispatcher and the HTTP entry bind.
 
-        With no `daily_cap_usd` configured this behaves exactly as before —
-        `MeteredSigner` signs straight through. With one configured it prices
+        With no `daily_cap_usd` configured `MeteredSigner` prices nothing, and
+        still refuses an action outside a configured `allowed_actions`; with
+        neither it signs straight through. With a cap configured it prices
         the transaction and refuses rather than sign what it cannot meter.
         """
         if is_placeholder_value(self.paymaster_key):
@@ -349,6 +411,13 @@ class Web3Manager:
 
                 signed = account.sign_transaction(tx_to_sign)
                 raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+                # Whatever the node answers, the signature's ledger row is not
+                # closed here. A refusal can be another backend's, relayed for
+                # bytes this one took, and a lookup by hash can be answered by a
+                # backend that cannot see them. A receipt closes the row: its
+                # own, or that of another transaction signed in its nonce slot,
+                # which is where the next send goes after a refusal
+                # (sponsorship.settle_signature).
                 try:
                     tx_hash = self.w3.eth.send_raw_transaction(raw)
                 except Exception as exc:
@@ -455,7 +524,7 @@ async def wait_for_receipt_on(w3: Any, tx_hash: Any, timeout: int = 120):
         if remaining <= 0:
             break
         try:
-            return await asyncio.to_thread(
+            receipt = await asyncio.to_thread(
                 w3.eth.wait_for_transaction_receipt,
                 tx_hash,
                 timeout=min(slice_s, remaining),
@@ -467,6 +536,26 @@ async def wait_for_receipt_on(w3: Any, tx_hash: Any, timeout: int = 120):
             # cannot reliably name web3's timeout type across versions, so
             # the DEADLINE decides and the last error is re-raised at it.
             last_exc = exc
+            continue
+        if receipt is not None:
+            # MINED — reverted or not, gas was paid. The services and the
+            # blockchain capabilities wait for their receipts here (through
+            # `wait_for_receipt`, `_receipt`, `receipt_within` and
+            # `settle_transaction`), so it is where a metered signature's ledger
+            # row becomes SPENT, and where every other signature in its nonce
+            # slot gives its budget back. It is not the tree's only receipt
+            # wait: the deploy tools in contracts/ and demo.py wait on their
+            # own, and crossborder, the dashboard and real estate read receipts
+            # by hash. A row whose receipt is read only there stays SIGNED,
+            # holding budget, never released early. Outside the `try` above: a
+            # ledger fault must neither be read as a slice expiring nor cost
+            # the caller the receipt it is holding.
+            try:
+                from runtime.blockchain.sponsorship import settle_signature
+                settle_signature(tx_hash)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("sponsorship ledger: could not settle %s: %s", tx_hash, exc)
+        return receipt
     if last_exc is not None:
         raise last_exc
     raise TimeoutError(

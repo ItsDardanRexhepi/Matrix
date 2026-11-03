@@ -24,9 +24,10 @@ covers, and the three previously-missed scenarios are covered explicitly:
     PARAMETRIC POLICY  -> test_a_parametric_policy_can_be_verified_at_all
                           test_filing_on_a_parametric_policy_does_not_crash
 
-PROOF OF FAILURE at HEAD ae9ff80 (pre-fix): 13 failed, 5 passed. The five that
-pass pre-fix are named here because a test that passes pre-fix is not passing,
-it is not looking — each needs a reason it is exempt:
+PROOF OF FAILURE at the commit "security(NEW-76): disable the unauthenticated
+insurance payout primitive" (pre-fix): 13 failed, 5 passed. The five that pass
+pre-fix are named here because a test that passes pre-fix is not passing, it is
+not looking — each needs a reason it is exempt:
 
   test_ownership_refuses_an_absent_caller       ) exercise NEW-77 itself, which
   test_ownership_refuses_a_record_with_no_owner ) did not exist pre-fix. Their

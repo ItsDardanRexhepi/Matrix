@@ -1,5 +1,14 @@
-"""Revenue routing to the NeoSafe multisig. Nothing in the gateway calls it yet
-(see NeoSafeRouter).
+"""NeoSafe revenue router — records fees and can send ETH to the NeoSafe multisig.
+
+No service calls it. `route_fee` is called only by
+examples/07_revenue_to_neosafe.py. Nothing outside the tests calls
+`route_revenue` (ServiceDispatcher builds a router in `_get_neosafe`, which
+nothing calls). This module is not how fees reach NeoSafe.
+The platform contracts pay their on-chain fees to each contract's
+`platformFeeRecipient`, which scripts/deploy_all.py sets to the configured
+NeoSafe address; injected conversion fees go to `blockchain.platform_wallet`;
+service-ledger fees are recorded, not settled. The full list is under Fees in
+docs/blockchain.md.
 
 The canonical NeoSafe address is ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 That value is used when ``blockchain.neosafe_wallet`` is not set in config.
@@ -20,14 +29,14 @@ NEOSAFE_DEFAULT_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 
 
 class NeoSafeRouter:
-    """Record platform fees against the NeoSafe wallet, and send revenue to it.
+    """Record fees and route ETH revenue to the NeoSafe wallet, when called.
 
-    :meth:`route_fee` records a fee in this process's in-memory ledger and
-    queues an EAS attestation for it on the router's own attestation service,
-    written to the chain once 50 have gathered; it moves no funds. :meth:`route_revenue` sends
-    ETH to the NeoSafe wallet and attests it once the transfer is mined.
-    Nothing in the gateway calls either yet: no platform action maps to this
-    router, and examples/07_revenue_to_neosafe.py calls it directly.
+    Nothing in the services calls it. :meth:`route_fee` appends to an in-memory
+    ledger (lost on restart) and hands the entry to the attestation service as
+    a platform record, which queues it like any attestation that is not
+    time-critical; it moves no value. :meth:`route_revenue` sends ETH to the
+    multisig when a chain is configured, and otherwise records an unsent entry
+    that nothing later sends.
 
     Config keys used:
         - ``blockchain.platform_wallet`` — the NeoSafe wallet address
@@ -140,17 +149,18 @@ class NeoSafeRouter:
             no receipt in time-> "pending", carrying the hash: not a refusal and
                                  not a failure, and not attested
 
-        When the platform is not configured for live execution the entry is
-        recorded in the in-memory ledger and ``status='queued'`` is returned;
-        nothing sends a recorded entry later.
+        With no chain configured nothing is sent: the entry is recorded in this
+        router's in-memory ledger and ``status='recorded_unqueued'``,
+        ``sent=False`` is returned. Nothing reads the ledger to send a recorded
+        entry later, and the ledger is lost on restart.
         """
         if amount_eth <= 0:
             return {"status": "skipped", "reason": "non-positive amount"}
 
         if not self._web3.available:
             logger.info(
-                "Revenue recorded, not sent: %.6f ETH from %s "
-                "(blockchain not configured; nothing sends it later)",
+                "Revenue routing not sent: %.6f ETH from %s recorded in memory "
+                "(blockchain not configured)",
                 amount_eth, source_action,
             )
             self._ledger.append({
@@ -159,13 +169,15 @@ class NeoSafeRouter:
                 "source": source_action,
                 "recipient": self._neosafe_wallet,
                 "timestamp": int(time.time()),
-                "queued": True,
+                "sent": False,
             })
             return {
-                "status": "queued",
+                "status": "recorded_unqueued",
+                "sent": False,
                 "message": (
-                    "Revenue recorded in the ledger, not sent: no blockchain is "
-                    "configured, and nothing sends a recorded entry later"
+                    "Not sent: no chain is configured. The routing is recorded "
+                    "in this router's in-memory ledger only; nothing sends a "
+                    "recorded entry later, and it is lost on restart."
                 ),
                 "amount_eth": amount_eth,
                 "source": source_action,

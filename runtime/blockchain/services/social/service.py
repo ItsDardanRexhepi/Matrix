@@ -271,15 +271,13 @@ class SocialService:
         "ANY feed" covers the platform's other one too. The dispatcher publishes
         every settled state-modifying action to the public social feed, and
         `send_message` is `share_proof`, so a followers-only share used to be
-        written there with its proof_data. That path carries no caller params
-        at all now, and it and the HTTP ripple decide with THIS function's
-        reading, because it is one function: ``visibility.is_public``, which
-        the dispatcher's `declares_non_public` calls too. They were two copies
-        that disagreed — this one did not strip spaces and read a null as the
-        word "none", the other stripped and skipped the null — so a share
-        with ``" public"`` or ``None`` went out to the public feed while this
-        one hid it. A visibility at the top of an item no longer outranks the
-        one in its ``proof_data`` either: both must say public."""
+        stored there with its proof_data and served to anyone. That feed's own
+        ingest (`SocialFeedEngine.ingest`) now refuses an item this reading
+        calls non-public, refuses the privacy service, and stores no caller
+        params at all; the HTTP ripple refuses the same items. All three
+        decide with ONE function, ``visibility.is_public``, which this method
+        is. A visibility at the top of an item does not outrank the one in its
+        ``proof_data``: both must say public."""
         return is_public(item)
 
     async def get_feed(self, address: str, limit: int = 50, mode: str = "latest") -> list:

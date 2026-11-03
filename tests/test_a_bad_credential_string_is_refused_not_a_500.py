@@ -32,35 +32,44 @@ and a configured key with a non-ASCII character in it now works rather than
 not an ASCII string ``invalid`` (malformed), not ``suspicious`` (compared and
 wrong), because a hex digest is ASCII by construction.
 
-MEASURED (first round, fd322b1): 22 failed, 5 passed before; 27 passed after.
-The five that pass before are the genuine-code, wrong-ASCII-hash,
-real-operator-key, wrong-ASCII-key and valid-proof regression guards; the
-eleven ``digests_equal`` cases fail before because the module does not exist.
+MEASURED (first round, the commit "A secret that does not match is refused, not
+a 500: one constant-time compare for the four sites that took a caller's
+string"): 22 failed, 5 passed before; 27 passed after. The five that pass
+before are the genuine-code, wrong-ASCII-hash, real-operator-key,
+wrong-ASCII-key and valid-proof regression guards; the eleven ``digests_equal``
+cases fail before because the module does not exist.
 
-SECOND ROUND. fd322b1 encoded both sides with a plain ``str.encode("utf-8")``,
-which is not total: aiohttp decodes a header byte that is not UTF-8 with
-``surrogateescape``, so ``Authorization: Bearer \xff\xfe`` reached the wall as
-``'Bearer \udcff\udcfe'`` and the encode raised ``UnicodeEncodeError``. MEASURED
-at 445a3d5 through the real middleware chain: that header answered 500 on
-every key-gated route and 500 on ``/health`` — after fd322b1 said the class
-was closed. ``os.environ`` decodes the same way, so an operator key set from
-such bytes could never have matched, and the rate limiter's own bare
+SECOND ROUND. The commit "A secret that does not match is refused, not a 500:
+one constant-time compare for the four sites that took a caller's string"
+encoded both sides with a plain ``str.encode("utf-8")``, which is not total:
+aiohttp decodes a header byte that is not UTF-8 with ``surrogateescape``, so
+``Authorization: Bearer \xff\xfe`` reached the wall as ``'Bearer \udcff\udcfe'``
+and the encode raised ``UnicodeEncodeError``. MEASURED at the commit "Corrects
+a54c1b6's message: the k8s secret template names the signer key only; the oracle
+variables are in .env.example alone" through the real middleware chain: that
+header answered 500 on every key-gated route and 500 on ``/health`` — after the
+commit "A secret that does not match is refused, not a 500: one constant-time
+compare for the four sites that took a caller's string" said the class was
+closed. ``os.environ`` decodes the same way, so an operator key set from such
+bytes could never have matched, and the rate limiter's own bare
 ``api_key.encode()`` would have 500ed the request the wall accepted. In
 ``verify_scan``, one field over from the guard, a ``product_id`` that was a JSON
-list or object raised ``TypeError`` (unhashable, as a cache key) and one
-holding a lone surrogate raised out of the HMAC's bare ``encode()``.
+list or object raised ``TypeError`` (unhashable, as a cache key) and one holding
+a lone surrogate raised out of the HMAC's bare ``encode()``.
 
 The compare, the rate limiter's hash and the QR HMAC now encode with
 ``surrogatepass`` — total (every ``str`` encodes) and injective (byte equality
 is string equality; ``surrogateescape`` is neither: ``'\ud800'`` still raises
 under it, and it encodes ``'\udcc3\udca9'`` and ``'é'`` alike) — and
 ``verify_scan`` names a non-string ``product_id`` ``invalid``. The cases marked
-"second round" are the sixteen that failed on 445a3d5's source with this file
-as it now stands: 16 failed, 31 passed before; 47 passed after. The sibling
-axes that never raised are pinned as guards and say why: the ``api_key``
-query (yarl leaves an undecodable escape as its literal text), the
-``X-Wallet-Session`` token (a dict read), and a ``verification_hash`` of
-surrogates (refused by the ASCII check before any compare).
+"second round" are the sixteen that failed on the source at the commit
+"Corrects a54c1b6's message: the k8s secret template names the signer key only;
+the oracle variables are in .env.example alone" with this file as it now
+stands: 16 failed, 31 passed before; 47 passed after. The sibling axes that
+never raised are pinned as guards and say why: the ``api_key`` query (yarl
+leaves an undecodable escape as its literal text), the ``X-Wallet-Session``
+token (a dict read), and a ``verification_hash`` of surrogates (refused by the
+ASCII check before any compare).
 """
 
 from __future__ import annotations
@@ -245,10 +254,14 @@ async def test_a_non_ascii_bearer_on_a_public_path_does_not_crash_the_rate_limit
 
 @pytest.mark.parametrize("raw", NOT_UTF8)
 async def test_an_anonymous_bearer_of_bytes_that_are_not_utf8_is_401_not_500(raw):
-    """DEFECT-PROVER, second round. fd322b1 encoded both sides with
+    """DEFECT-PROVER, second round. The commit "A secret that does not match is refused,
+    not a 500: one constant-time compare for the four sites that took a caller's
+    string" encoded both sides with
     str.encode("utf-8"), which raises UnicodeEncodeError on the lone surrogate
     aiohttp produces for an invalid header byte — so this spelling still
-    answered 500 on every key-gated route after fd322b1 said the class was
+    answered 500 on every key-gated route after the commit "A secret that does
+    not match is refused, not a 500: one constant-time compare for the four
+    sites that took a caller's string" said the class was
     closed. Before: 500."""
     server = _server()
     async with TestClient(TestServer(server.create_app())) as client:

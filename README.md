@@ -14,16 +14,16 @@ On The Matrix, if you can think it, you can achieve it.
 
 What you can do on The Matrix:
 
-- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
+- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan — the generated interface, state, and function signatures, a draft for you to read, fill in and compile. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
 - Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
 - Create NFTs and register your creative work with an on-chain royalty that every marketplace honouring the ERC-2981 standard pays you on resale
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
 - Hold identity credentials and present only the claim values you choose — the other fields are replaced by commitments, though their names still show — and have them checked by the gateway that issued them (their proofs are digests that gateway records, not signatures anyone else can check)
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world in seconds, with no platform fee taken from the transfer, and network gas sponsored within the policy the operator configures
+- Record payments today, and send them once settlement is built: the stablecoin-transfer capability records a transfer on its service's in-memory ledger with a tiered fee (0.1% or less by default), and the cross-border payment capability records the payment instruction, keeping no balances, with a flat 0.5% fee. Both answer `recorded_unsettled` — no value moves and no transaction is sent — and a cross-border payment the compliance check stops answers `compliance_hold`. The stablecoin ledger starts empty and only a test helper funds it, so a transfer there is refused for insufficient balance. Neo's own chain tools are a different path, and they do send: with a chain configured, and within the sponsorship policy, `payment` sends ETH or an ERC-20 token and `stablecoin` a stablecoin it lists for the network, each from the platform wallet's own balance and with no fee, and other Neo tools sign ETH and token transfers from that wallet too. Naming Neo takes the operator key on a gateway that has one set, and the Python SDK's `send_payment()` is a chat message asking Neo to use `payment` for ETH and `stablecoin` for a token. The fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
-- Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
-- List tokenized securities and place orders on a book that enforces accreditation and jurisdiction rules, wherever the offering is lawfully available to you — settlement is not built yet, so a match moves no units and no money and says so, and a purchase is refused rather than recorded as paid
+- Build blockchain applications and games with less hand-written Solidity — write the contract as structured pseudocode, read the Solidity draft it generates, compile and deploy it yourself
+- Issue a tokenized security and list it on the exchange's order book, wherever the offering is lawfully available to you; buying one is refused until a settlement path exists (`buy_security` is catalogued `available: false`), so no trade settles on chain yet
 - Access parametric insurance whose claims are decided by the data it watches, with no adjuster in between — the decision is automatic and recorded against the reserve today; paying it out on-chain is the part still being built
 - Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
 - Verify the complete history of any product, property, or asset before you buy it
@@ -31,7 +31,7 @@ What you can do on The Matrix:
 - Watch the platform come alive through the real-time social feed — swaps, mints and votes as they settle, ranked and streamed live, and nothing that was shared with fewer people than everyone
 - And much more — open source, yours to run, yours to change
 
-Every one of those runs against a blockchain you configure. Until you configure one, each service says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't.
+The ones that write to a chain run against a blockchain you configure, and until you configure one, each says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't. The ones that keep their own records, like the payment ledgers above, run with or without a chain and say that nothing moved.
 
 Your companions Trinity, Morpheus, and Neo are with you every step of the way.
 
@@ -64,7 +64,7 @@ Getting there is not one commit, it is a long line of them, so I hold every one 
 - **Nothing here claims to do something it does not do.** When a claim in the code, the docs, or this README turns out to be untrue, the rule is to build it true where that is possible, and to correct it plainly where it is not. Both happen, and the correction is written down either way.
 - **A fix arrives with the check that catches it.** Every change ships with a test that fails against the old behaviour and passes against the new one, and I run it against the old behaviour first — a test that was never seen failing has not proven anything.
 - **A refusal is a feature.** When a service has no chain, it says `not_deployed`. When the platform cannot do a thing, it says so instead of returning something that looks like success. When a number is not known, you get a dash and not a plausible figure. Money is the place where a comforting lie costs the most, so that is the place it is least welcome. The same goes for a setting: a config value that would quietly switch off a guarantee this repository states — a feed weight of `NaN`, which slips past every "must be greater than zero" check ever written and then removes the cap it was supposed to bound — is refused out loud, because a guarantee you can turn off without being told is not one. The mirror of that rule holds too: a setting for something *optional* must not be able to stop the platform. Mistype the Sentry sample rate or the metrics interval and you lose the telemetry, with a line in the log saying which value was ignored and what was used instead — you do not lose the gateway.
-- **A record says what happened, not what was attempted.** Anything here that outlives the call — an attestation, a public feed entry, a claimable balance, a billing counter, an invoice — is written from the verdict the thing it called actually returned. A batch of attestations is judged one attestation at a time, and the ones that did not land go back on the queue instead of being reported as written — except one that was sent and that no receipt confirmed in time, which leaves the queue and is logged under its hash rather than sent again, because a second send could put two claims on the chain where one was made. A transfer is `routed` when a receipt confirms it, `failed` when the chain reverted it, and `pending` when it was broadcast and nobody knows yet — and the attestation follows the receipt, because a claim put on a public chain cannot be taken back. That holds for every action that sends a transaction, not only the ones whose service remembers to wait: sending is not the same event as the chain accepting it, so a bridge, a channel close or a liquidation that has only been broadcast, or a transfer whose receipt did not arrive in time, is recorded as a broadcast, with its hash, and is neither attested on-chain as done nor announced on the feed as done — and not recorded as declined either, because it may still be mined. A KYC credential would be issued only when its receipt confirms it, and for now no KYC credential is issued at all: the provider's review names an applicant, the credential names a wallet, and nothing the platform holds ties the two together, so the request is refused. The list of methods that send is not kept by hand: a test finds every one of them from the send itself, not from the word it answers with, and fails if any could be recorded as settled without a receipt; a second finds every one that waits for its receipt and holds that it waits through the one helper whose three answers are driven, because the two that waited on their own called a wait that ran out a refusal. Settled, sent, and refused are three different things, and the record says which one it was rather than rounding the middle one to either side. A method that writes a record and calls no contract says `recorded_unsettled` and says plainly that nothing moved, rather than `purchased`, `claimed`, `minted` or `attested`. Cashback you have not been paid stays claimable. A subscription counts the charges that settled. A job whose tools refused is not invoiced, and one whose tools disagree is not invoiced either — an outcome nobody established is not something to bill for, and it is not something to learn from.
+- **A record says what happened, not what was attempted.** Anything here that outlives the call — an attestation, a public feed entry, a claimable balance, a billing counter, an invoice — is written from the verdict the thing it called actually returned. A batch of attestations is judged one attestation at a time, and the ones that did not land go back on the queue instead of being reported as written — except one that was sent and that no receipt confirmed in time, which leaves the queue and is logged under its hash rather than sent again, because a second send could put two claims on the chain where one was made. A transfer is `routed` when a receipt confirms it, `failed` when the chain reverted it, and `pending` when it was broadcast and nobody knows yet — and the attestation follows the receipt, because a claim put on a public chain cannot be taken back. That holds for every action that sends a transaction, not only the ones whose service remembers to wait: sending is not the same event as the chain accepting it, so a bridge, a channel close or a liquidation that has only been broadcast, or a transfer whose receipt did not arrive in time, is recorded as a broadcast, with its hash, and is neither attested on-chain as done nor announced on the feed as done — and not recorded as declined either, because it may still be mined. A KYC credential would be issued only when its receipt confirms it, and for now no KYC credential is issued at all: the provider's review names an applicant, the credential names a wallet, and nothing the platform holds ties the two together, so the request is refused. The list of methods that send is not kept by hand: a test finds every one of them from the send itself, not from the word it answers with, and fails if any could be recorded as settled without a receipt; a second finds every one that waits for its receipt and holds that it waits through the one helper whose three answers are driven, because the two that waited on their own called a wait that ran out a refusal. Settled, sent, and refused are three different things, and the record says which one it was rather than rounding the middle one to either side. A method that writes a record and calls no contract says `recorded_unsettled` and says plainly that nothing moved, rather than `purchased`, `claimed`, `minted` or `attested` — and that includes a marketplace purchase, a game-item trade, a tournament entry, a prediction-market bet and an AI model or training-data sale, which are written down here with nothing changing hands and are therefore neither attested as settled nor announced on the feed. Cashback you have not been paid stays claimable, and no dollar of it is covered by two open claims: pressing claim again with nothing new returns the same claim, and cashback earned since the last claim gets a claim of its own once it reaches the minimum claim amount. Until someone presses claim, and while what has accrued since the last claim is under that minimum, that cashback has no claim yet; it is still in the balance, and a returned claim states the whole balance outstanding. A subscription counts the charges that settled. A public feed entry announces the figure its record says moved, or none: a price is what something costs, not a payment, so a subscription nobody has been charged for, its cancellation and a new plan appear on the feed without a dollar value, and a record that says no value moved is never published beside one. A refusal a client has to act on names itself in a field, not only in a sentence: a second vote on the same proposal sent to the governance vote route is refused there with `error_code: already_voted`, so an app can say a vote is on record without reading prose, while the generic capability route still answers a second vote as a call that could not be completed, without that field. A social post goes to Twitter, Discord or both, and a post addressed to any other platform is refused when it is sent or scheduled rather than recorded as published after going nowhere. A job whose tools refused is not invoiced, and one whose tools disagree is not invoiced either — an outcome nobody established is not something to bill for, and it is not something to learn from. An agent service's advertised success rate is measured from its own finished jobs whose outcome was established, and a service with none has no rate rather than a perfect one; its rating and response time are still unmeasured defaults.
 - **The security layer is described as it is.** With no enforcement core installed the platform runs in OBSERVE mode and announces it at boot, because "secured" is a claim like any other and has to be earned.
 - **This README is part of the software.** Each commit that changes what the platform can do updates this file in the same breath, so what you read here keeps matching what you would find if you went looking in the code.
 
@@ -78,7 +78,7 @@ If you ever catch this repository claiming something it cannot do, that is a bug
 
 **Trinity** faces the world. She is the primary interface for every user. Warm, capable, present. She speaks your language and handles everything you need in plain conversation.
 
-**Morpheus** appears at the moments that matter. Never in casual conversation. Before every irreversible action. When something significant happens to you. He tells the truth clearly and waits.
+**Morpheus** appears at the moments that matter. Never in casual conversation. The first time you use a kind of capability, and on an action that cannot be undone. When something significant happens to you. He tells the truth clearly and stops: his note is added to the result of the call it concerns, so it reaches you with that result, after the call has run, and nothing waits for an answer to it.
 
 ---
 
@@ -128,6 +128,33 @@ then stops with a non-zero exit and the command to run setup yourself. The
 setup itself, run with its input redirected or closed, stops the same way at
 its first unanswered question instead of ending in a traceback.
 
+Or install the `matrix` command as a package, from a clone:
+
+```bash
+pipx install .                            # inside the clone; not a name on PyPI
+matrix setup                              # the same setup, written into ~/.matrix
+matrix gateway start -d                   # the gateway, run from that folder
+```
+
+An install keeps its configuration, its keys, its data and the gateway's PID
+and log in `~/.matrix`, created readable by you only, or in `$MATRIX_HOME`
+when that is set; a clone keeps them in the clone. The package also carries
+the files beside the code that the gateway reads, at the paths a clone has
+them: the agents' identity prompts, the web pages, the component registry,
+the skills and Apple's root certificate for in-app purchases. So the gateway
+an install runs gives each agent its prompt, loads the skills and serves
+`/chat` and the other pages as a clone's does; a page, the registry, an
+agent's prompt or a skill put in that folder under the same name is read
+instead of the packaged one. `matrix-gateway`, which the install also puts on
+your PATH, runs the gateway in that folder too; until `matrix setup` has
+written a configuration there, it and `matrix gateway start` stop and say to
+run the setup. Do not `pipx install the-matrix`: that name on PyPI belongs to
+an unrelated project. An install takes its dependencies from the ranges in
+`pyproject.toml`, not from the lock in `requirements.txt` that the suite runs
+on. The Homebrew formula under `packaging/homebrew/` is not published and is
+pinned to a commit from before the command could do this, so it cannot set the
+platform up yet; its page says what has been measured.
+
 ---
 
 ## Model Support
@@ -163,7 +190,9 @@ proxied through another company. The ones marked OpenAI-compatible in
 (`/chat/completions`), which is why they need no bespoke client; Anthropic,
 Gemini, NVIDIA and Ollama each keep their own, because their format differs.
 `custom` reaches any endpoint that speaks that format, so a provider missing
-from this table is still usable today.
+from this table is still usable today. Each client sends the platform's tools
+in its provider's own format, whichever of the two shapes a tool is registered
+in (`tool_function` in `runtime/models/model_interface.py`).
 
 Keeping your model current, after setup:
 
@@ -187,9 +216,13 @@ provider".
 The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
-insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,561 tests,
-run against the versions `requirements.txt` locks.
+insurance, compute, AI, energy, legal, and social — is listed in one
+service registry (`runtime/blockchain/services/registry.py`).
+`ServiceDispatcher`, the agents' way in, reaches 44 of them;
+the forty-fifth, real-estate escrow, is reached only by its own routes,
+which answer 403 while it is disabled. All of it is exercised by an
+automated suite of 7,186 tests, run against the versions
+`requirements.txt` locks.
 
 What works today, no chain required:
 
@@ -199,12 +232,30 @@ What works today, no chain required:
   happened to it. A denial by the security gate, a gate that could not be
   reached, an executor that was not wired and an execution that threw are
   each reported as the refusal they are, and when Neo does run, the
-  hand-off relays Neo's own verdict rather than its own opinion of it
-- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
-- **All 45 blockchain services** — return a standardised
-  `{"status": "not_deployed", ...}` response with a deployment guide
-  whenever the chain is not yet configured. No fake addresses, no
-  fabricated transaction hashes. That refusal survives the trip out: the
+  hand-off relays Neo's own verdict rather than its own opinion of it.
+  Every tool call asks the security seam with the caller identity the
+  request's entry point bound, never one the model wrote into its
+  arguments, and the hand-off's gate is told the same identity, so a
+  decision the core makes about who is calling can bind at both. On every
+  chat entrance that identity comes from the session the caller presents;
+  only an operator integration may name the user it acts for, and an
+  anonymous caller has none. A wallet address has one spelling wherever
+  the platform names a caller (`0x` and its digits in lower case,
+  `runtime/auth/identity.py`), so a wallet that signs in with its address
+  in another case is still the same caller, an owner a record holds in
+  another case is still its owner, what the gateway stored under a wallet
+  before that rule is rewritten in it the first time the gateway opens its
+  database (one wallet stored under two spellings becomes one, its turns in
+  order), and the gateway starts the security core's gate only when the
+  core names a caller by the same rule
+- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → generated Solidity draft → Glasswing security audit; it compiles and deploys the result only where an operator turns on `conversion.auto_deploy`
+- **Blockchain services, with no chain configured** — answer with what
+  happened rather than a success: a stake returns a standardised
+  `{"status": "not_deployed", ...}` response with a deployment guide, a
+  cross-border payment is recorded and says nothing moved
+  (`recorded_unsettled`), and a swap quote is computed from the service's
+  own pools. No fake addresses, no fabricated transaction hashes. A
+  not_deployed refusal survives the trip out: the
   HTTP answer is a 503, not a 200, and every envelope the gateway builds
   states the verdict of the action in a `call_outcome` field of its own
   rather than letting its own `ok` stand in for it — on both `/api/v1`
@@ -259,7 +310,27 @@ check behind it:
   the verification gas limit three times, not once, because that limit
   also bounds the paymaster's postOp — so the cap cannot authorise more
   real spend than it names. The sponsored action is decoded from the call
-  data being signed rather than read from a label the caller supplies. An
+  data being signed rather than read from a label the caller supplies.
+  The ledger says what became of each signature: it holds budget as
+  signed, becomes spent when a receipt shows the transaction was mined
+  (a revert pays gas too), and gives the budget back only when the
+  receipt of another transaction the platform signed, from the same
+  account on the same chain with the same nonce, shows that one mined
+  instead: only one of them can ever be, so the other never will be,
+  whichever path broadcast either. That covers a send the node refused,
+  one whose fate nobody learned and one never broadcast, and when the
+  same bytes were signed twice, the copy mined is held once. No answer
+  to a send gives budget back: a node can name a refusal for bytes a
+  proxy delivered to another of its backends, and a lookup by hash can
+  be answered by a backend that cannot see them, so a refused send keeps
+  holding its budget until a later transaction from the platform account
+  takes its nonce and is mined, or the day's window passes. A receipt
+  counts when the platform waits for it, in the process that signed,
+  through the one receipt wait its code shares; a receipt read anywhere
+  else gives nothing back, and neither does a send whose receipt is not
+  waited for, as some services broadcast and return. Every web3
+  connection the running platform opens sends a raw transaction once and
+  never retries it. An
   operator who configures no cap keeps the previous behaviour
 - **The deployment tools will not put the old paymaster on a chain.** The
   paymaster the platform uses is the ERC-4337 verifying one, which pays
@@ -271,6 +342,264 @@ check behind it:
   old one stops the pipeline before a single address is configured or a
   single transfer is sent. Deploying it is now a deliberate act by hand,
   which is the only kind of act it should ever have been
+- **What a tool brings back is marked as data, not orders.** When an
+  agent reads a page, a file or another service, the text reaches the model
+  inside an envelope that names the tool, says the content is untrusted
+  and not an instruction, and closes on a random marker the content cannot
+  know, so nothing inside it can pass itself off as being outside it. That
+  is a label, not a lock: a model can still be talked into things by text
+  it was told not to trust, and what is enforced — the security gate,
+  which tools each agent may hold, the shell's refusal outside a declared
+  development environment — is enforced elsewhere
+- **No request can have the platform's key sign or revoke an attestation
+  it wrote.** An attestation that an agent did something is written when
+  the platform executes the action, never composed from a request. The
+  agent-identity tool and the general attestation tool (`eas`) sign none
+  on demand, and `eas` revokes none because a request names it. The
+  services layer's attestation actions (`create_attestation`,
+  `batch_attest`, `revoke_attestation`) are refused the same way at every
+  door that dispatches them — capability invoke, `/bridge/v1/action`,
+  Trinity's escalation to Neo and Neo's `platform_action` — whoever is
+  asking, the operator key included; so are two more that signed a
+  statement the request wrote: `submit_retropgf`, an application attested
+  under the platform's own schema by default, and `issue_kyc_credential`,
+  which read the verification it attested from the request itself. Nor
+  can a request aim the platform's key at the EAS contract directly:
+  `smart_contract`'s `send`, which signed any call the request composed,
+  the EAS contract's own `attest` and `revoke` included, is refused by the
+  tool and, before the tool runs, by the tool dispatcher, whoever asks. A
+  test drives that call through the tool, the dispatcher, all four chat
+  entrances with the operator key, capability invoke, `/bridge/v1/action`
+  and both hand-offs, under the default sponsorship policy, and reads what
+  reaches the chain. A registration names one of the
+  platform's own three agents, and verifying one checks that the
+  attestation is the platform's own registration of that agent, not merely
+  one that exists. Every other attestation a blockchain tool signs has a
+  fixed statement, and the address it is about — an identity
+  registration, an achievement, an IP registration, an investor
+  whitelisting — can be no address but the one your session is bound to;
+  the same holds for a DeFi supply or borrow made for you, and for the
+  account an NFT or game-item transfer moves from. A cross-border
+  payment's compliance record names no address at all, since that call
+  pays nobody. Tests trace, in the source, each value that reaches the
+  statement or the subject of an attestation these tools make back to a
+  constant or to the request as it was written, through the shapes they
+  name (a field of the request, local names bound by an assignment, a loop,
+  `with` or `match`, the `self` attributes the module writes, conversions),
+  and report as a failure a value in any other form; report a request
+  written into before its field is read — directly, or through a name bound
+  to it by an assignment, an `and`/`or`, a conditional or a `match` capture
+  — or handed to code they do not read; report each way of reaching the
+  attestation they name and cannot read; walk every call the platform's
+  wallet signs (next point); and drive every one of those doors. They read
+  the shapes they name and no others, and do not claim those are every
+  shape: reviews have found shapes past them before, and each found is now
+  named and planted. Four limits, stated: the next
+  point's (a timelock's or a governor's inner call, which that contract
+  makes as itself); a record about your own
+  address is still your word (the platform checks no achievement and no
+  investor's eligibility); the records the services layer writes about
+  operations it ran (a cross-border payment, an insurance claim, a
+  royalty) carry what that operation was asked, and no test walks those
+  yet; and a reading of the source cannot see code replaced while the
+  platform runs
+- **No request composes a call or a message in a transaction the
+  platform's wallet signs, in the shapes a test reads.** Every transaction
+  the platform's wallet signs, as that test reads it, calls a function
+  named in its own code (or, with `conversion.auto_deploy` on, deploys a contract the
+  conversion pipeline generated and its audit passed), and none carries
+  a call or a message the request wrote — calldata for another call, a
+  cross-chain message — except the limit named below (an attestation's
+  statement is the point above). The few request-written bytes a signed
+  call does carry are listed in the test by name, each with the reason
+  it is neither (an address encoded as bytes; the input an automation
+  job hands the contract the request named for it). A request may supply
+  other arguments. At the blockchain tools the ones that must be your own
+  address are checked, as above. In the services layer a test lists every
+  address it reads a request supplying to a call the platform signs, 26,
+  each with what it is — 14 name who receives, holds or is credited with
+  what the platform's own call pays, lends, stakes, delegates, mints or
+  creates (a reward's recipient, a loan's on-behalf-of account, a keeper
+  job's upkeep, a restaking receiver, a payment channel's partner among
+  them), 8 name which of the platform's own tokens or contracts the call
+  uses, 2 name the contract the call itself is sent to (a breeding
+  contract and a Sound.xyz drop), and 2 sit behind a pair every door
+  refuses; two more, a token bridge's receiver and a Stargate recipient,
+  travel encoded as bytes and are listed with them. A new one fails the
+  test until it is read. A user session is refused every action the next
+  point's test finds reaching one of them, by its own method or by one it
+  hands the call to, or held to its own address (next point); for the
+  operator's key they are the platform's value moving where a request
+  says, which is the security gate's to evaluate and which, with no
+  enforcement core installed, it observes and does not refuse. The `smart_contract` tool compiles, reads and verifies
+  and signs nothing: its `send` let a request pick the contract, the
+  function, the arguments and the value, and the tool dispatcher now
+  refuses it before the tool runs, for every caller. A token-bound account's
+  `execute_as_tba` is refused: it signed the request's call, a
+  delegatecall if asked, from the platform's wallet and with the
+  platform's ETH, to whatever contract the request named as the account.
+  The four cross-chain message sends (`send_cross_chain_message`,
+  `bridge_hyperlane`, `bridge_wormhole`, `bridge_axelar`) are refused,
+  because the receiving chain reads the platform's wallet as their
+  sender, and a CCIP token bridge carries no message: it refuses a
+  request that brings one. Nor does the platform's wallet hand an account
+  to a new owner or a new key: `recover_wallet` and `create_session_key`
+  sent their module call from the platform's wallet with the addresses the
+  request named, so the platform's standing with the module, not the
+  account holder's, authorized it. `execute_as_tba`, the four sends and
+  those two are each refused in the service and at every door, whoever
+  asks, and the component registry the app reads offers none of them, nor
+  any other action every door refuses. A configured
+  sponsorship allowlist binds with or without a daily cap. A test walks
+  every `sign_transaction` and `send_transaction` call in `runtime/` and
+  `gateway/`, follows each bytes input a named function carries through
+  the binding forms it names, and fails on one it cannot read as a
+  constant unless it is listed with its reason; it fails on a transaction
+  written into through any target or method it names, or handed on — to a
+  call, a container, an attribute or another name, directly or through
+  `or` or a conditional — before it is signed; and every other key
+  signature there is listed where it is made. It reads the shapes it names
+  and no others, and does not claim those are every shape. The limits, stated: `governance`'s timelock schedule and execute
+  and a `dao` proposal carry an inner call the request wrote, which the
+  timelock or governor makes as itself under whatever role the platform
+  holds there, a deployment fact this repository cannot see; those are
+  Neo's tools, which no chat without the operator key reaches. The
+  paymaster signs, with a platform key, a digest of a user operation the
+  request composes, which commits the paymaster's deposit to that
+  operation's gas and makes the platform the sender of nothing: the
+  operation runs only if its own account's validation accepts it, and
+  without a session the daily cap is metered against an address the
+  caller writes. And a function the code names can be sent to a contract
+  the request names, whose own code then runs with the platform's wallet
+  as its caller: the test reads that contract where the function builds
+  it from what it was handed, and lists the two it finds (a user session
+  is refused both, next point); one stored on `self` by another request,
+  or taken from another object's state, it does not read. A platform
+  credential other than the wallet's key — the operator's MPC cluster, a
+  publishing account, a storage node, a provider account — signs or
+  publishes off the chain, which this test does not read. The next
+  point's test walks every HTTP request a services-layer method sends, in
+  the shapes it names, and a user session is refused each action it finds
+  reaching one a platform credential makes on what the request names; the
+  operator's key keeps those over `/bridge/v1/action` and Neo's
+  `platform_action`
+- **A user session does not have the platform act on what it names.** In
+  the services layer the platform's wallet signs, and credentials the
+  operator configured act, for whoever reaches them. A user session — the
+  app's credential — and chat acting for one (Trinity's hand-off to Neo,
+  and `platform_action`) are refused, at capability invoke,
+  `/bridge/v1/action` and the tool dispatcher, each action the test below
+  finds, in the shapes it reads, in which the platform's wallet or a
+  platform credential would sign, pay, publish or authorise while the
+  request names the payee, the account, the asset, the contract the call
+  is sent to, the key, the digest or the content, or in which the
+  platform's server would send, with a platform credential, a request
+  whose address, method, headers, query names or body the request writes:
+  the platform's funds
+  sent to a payee the request names or spent on an asset it names (a
+  compute reward's recipient, a token bridge's receiver, a Stargate
+  recipient, a loan's on-behalf-of account, a keeper job's upkeep, a
+  restaking receiver or operator, a payment channel's partner, a delegate,
+  an auction's or a bribe's token, a token-bound account's NFT among
+  them); a call from the platform's wallet to a breeding contract the
+  request names (`breed_nft`); a threshold
+  signature the operator's MPC cluster makes over the request's digest
+  under the key id it names (`mpc_sign`); a post under the platform's
+  publishing account, a cast through a Farcaster signer the platform's key
+  reaches, a write to the platform's storage node or database, a job or a
+  lease on its provider account, a payment from its payment node, a KYC
+  applicant opened or read with its KYC credential; and an oracle request
+  that would have the platform's server send what the request wrote to
+  the address it names (`custom`) or read its sports provider, with its
+  key, at a path the request writes; a read of the RedStone gateway with
+  the platform's API key at the data-service path the request writes
+  (`redstone_request`); an oracle type sent as anything but
+  a price, a weather reading or randomness, of whatever type, is refused,
+  not raised on. The refusal is decided on the method an action reaches,
+  not on the name it is called by: an action whose method hands the call
+  on, inside the services layer, to one of those is refused with it —
+  `compute_job_submit` is privacy's own name for the compute job, and
+  privacy's `decentralized_store` and `ipfs_pin` hand the call to the
+  Filecoin store — and so is a
+  `platform_action` `service` override onto such a method. The operator's
+  key keeps each of them over `/bridge/v1/action` and Neo's
+  `platform_action`; capability invoke runs, for any caller, only what the
+  catalog marks available, and it marks only those three of them so.
+  Where the one address a request names is the one the platform acts for
+  and it spends only gas on it — a Lens profile, a social or creator
+  token, a Push subscription — the action is kept for a session and bound:
+  it must name the session's own address, and a session bound to no wallet
+  is refused. The list is derived, not only written: a test takes every
+  address a request supplies to a call the services layer signs, as the
+  signing census reads them, walks every HTTP request a services-layer
+  method sends, through the shapes it names, and reads what rides in each
+  part of each of those requests: a value the request wrote, the
+  platform's configuration, a credential read from it (a mapping or a
+  sequence splatted into the call counted in every part it could fill,
+  unless it is written out key by key). It follows each method a dispatch
+  can run to what that method hands the call on to inside the services
+  layer: another method of its class, a function, a method of another
+  service or of an object the service holds, the object's class read from
+  what builds it and carried through the forms its docstring names, and a
+  method or a function held on `self`, in a class attribute or in a
+  module name. A module name is read from the statements and functions of
+  its module that write it, by assignment or through `update`, `append`,
+  `extend`, `insert`, `setdefault`, `add` or `__setitem__`; a write from
+  another module, through an alias or through a parameter, or by another
+  mutator, is not read. A class attribute is read from the class body and
+  from a method's assignment through `self` (plain, annotated or chained,
+  or `setattr(self, ...)`); a write through the class's own name by code
+  of its module (`Front.sink = fn` or `setattr(Front, "sink", fn)`, in a
+  method or outside one) is read as a write into the module name `Front`, so it is
+  followed by code an action reaches that uses that name and not through
+  `self` alone; and a write through `cls`, `type(self)` or
+  `self.__class__`, or through `self` by unpacking or as a `for` or `with`
+  target, is not read. It reaches, too, what is
+  in a lambda or handed to another object that holds it; an attribute
+  `getattr` or `setattr` names by a constant is read as that attribute. It
+  fails on any action that reaches what the walks find and is not refused,
+  handed on, bound, held or listed with its reason; on an action that
+  reaches a request whose URL or method the request writes, or that
+  carries a platform credential beside a header, a query name or a body
+  the request writes (or, on anything but a read, a query value), and is
+  not refused, handed on, bound or held, whether or not it is listed as a
+  read; on a table entry the walks do not find; on a call in that reach on
+  an object it cannot place whose method has the name of one that reaches
+  a send; and on a call through a callable held on `self` or in a module
+  name that it cannot place. In code an action reaches, it fails on a
+  `getattr` by a computed name. Anywhere in the services layer, it fails
+  on an attribute or a name written or looked up by what it cannot read
+  (`setattr` by a computed name, `vars`, `globals`, `__dict__`, ...), on a
+  decorator it does not read and on an HTTP library an import statement
+  binds under another name; a call made on a library bound by
+  `__import__` or `importlib.import_module` is not read (a client built
+  from it inside `with` is). A read that carries a platform credential
+  and only query values the request writes, to an address the platform
+  fixes, is kept for a session and listed with its reason: the weather
+  reading and the cross-chain message tracker. It does not read an amount,
+  an object handed in from outside the services layer, code outside it, or
+  a shape it does not name.
+  `POST /api/v1/stablecoin/transfer` is not a session route, and
+  `transfer_stablecoin` is refused to a session at every dispatcher with
+  it: each takes its sender from the request, and nothing binds that
+  sender to the caller. The route records nothing, for any caller: its
+  handler hands the service's transfer `sender` and `recipient`, which
+  it does not take (it takes `from_addr` and `to_addr`), so a body with
+  the four fields the handler requires and an amount that is a number
+  between -1e308 and 1e308 is answered 400, and one whose amount is
+  null, a list, an object, a string float() cannot read as a number, or
+  an integer of up to 4,300 digits beyond the largest float (about
+  1.8e308, of either sign) is answered 500; an integer of more digits is
+  refused as not JSON and answered 400. The capability records only on the service's in-memory
+  ledger, which starts empty and which only a test helper funds, so for
+  the operator's key it answers that the balance is insufficient. The
+  component registry the app reads offers
+  none of the actions `runtime/access_policy.py` refuses a session, itself
+  or with what it hands the call to; it still offers 22 actions whose
+  dedicated routes a session is refused, `transfer_stablecoin` among them,
+  and every dispatcher refuses a session each of those as its route does.
+  The capability invoke route runs nothing the catalog marks unavailable,
+  whoever asks
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
@@ -285,7 +614,10 @@ check behind it:
   where nothing was bound it is written down as a claim rather than
   promoted to the actor — so a caller who names somebody else shows up in
   the trail as exactly that, whichever of the three answers the record
-  gives, instead of the platform quietly agreeing. The one deliberate
+  gives, instead of the platform quietly agreeing. An integration holding
+  the operator key may name the user it acts for when no session is
+  presented, and the record says the operator named that user rather than
+  labelling it the way it labels a signed-in session. The one deliberate
   exception is a privacy action refused on the `/api/v1` path: its decline
   is recorded with no actor and no claim, because naming who was refused
   is exactly what the privacy exclusion exists to prevent
@@ -306,6 +638,40 @@ check behind it:
   again — it may already have been taken, so it waits for someone to
   check it with the gateway. A renewal nobody tried to charge, because no
   gateway is configured, simply stays due
+- **An App Store purchase belongs to the account that verified it
+  first.** A transaction the App Store signs can be posted again by anyone
+  who holds its bytes, and the signature still checks out, so the post
+  does not get to say whose the purchase is. A session of another account
+  presenting a purchase, the same transaction or a later one of the same
+  subscription, is answered `409` and nothing of it is recorded. Who holds
+  the purchase is read and the records are written in one database
+  transaction, so two accounts presenting a new purchase at the same
+  moment cannot both be given it. An account here is the sign-in a
+  session was made with, so the holder presents its purchase again from
+  any session of that sign-in, while an Apple sign-in and the wallet
+  linked to it are two accounts and the second is answered `409`. A
+  purchase restored into a second account, even one the same person signs
+  in to, stays with the first: refusing is the cautious answer, and moving
+  a purchase between accounts is not built. A subscription that an earlier
+  version of the gateway moved to the account that presented it last
+  stays with that account
+- **A subscription follows its newest transaction.** Its plan, product and
+  expiry come from the latest purchase date among the transactions the app
+  posts and the ones the App Store names in a subscribe, renewal, expiry,
+  refund or revoke notice; its other notices change nothing on the
+  subscription. An older one, posted by anyone or delivered late by the
+  App Store, takes nothing back, and an expiry notice about a transaction
+  older than the newest one does not expire the subscription. An expiry
+  notice ends the period it names even before the app has posted that
+  period, so only a later period makes an expired subscription active
+  again. The App Store's refund or revoke notice ends the subscription
+  even when it reaches the gateway before the purchase does, or before
+  the gateway knows the product, and a transaction that carries its
+  revocation date ends it too, whichever period either one names: a
+  refund of an earlier period ends a later one already paid for. An ended
+  subscription stays ended, also when a later period of it is bought or
+  renewed, or the App Store reverses the refund: reinstating it is left to
+  the operator
 - **A batch request carries the credential it was sent with.** Each item
   inherits the batch's caller, so an operator's batch reaches what an
   operator reaches and an anonymous one does not borrow more than it
@@ -340,6 +706,105 @@ check behind it:
   default
 - **Security posture is stated, not assumed.** With no enforcement core
   installed the platform runs in OBSERVE mode and says so at boot
+- **Durable execution is off unless it is turned on.** With
+  `engines.durable.mode` (or `MATRIX_DURABLE_MODE`) at `off`, the default,
+  nothing below runs and every action behaves as it did before it existed.
+  At `shadow`, each state-modifying action the service dispatcher runs, and
+  each platform-key signing call of the blockchain tools, gets a run in
+  `workflow_runs` (START, RUNNING, then COMPLETE, FAIL or ABORT) with its
+  steps in `workflow_steps`; the attestation and the feed entry the
+  dispatcher delivers get `outbox` rows; an `Idempotency-Key` sent to
+  `POST /bridge/v1/action` is recorded in `idempotency_keys` against the
+  first run that used it; and every answer is the one `off` gives, a replay
+  included. Rows written, and the time it takes to write them (below), are
+  shadow's only effects: it refuses nothing, and `GET /ready` does not read
+  it, so a shadow instance whose engine or loop fails keeps serving as `off`
+  would, and says so in its log. At `on`, the maintenance tick additionally
+  checkpoints the write-ahead log between dispatches
+  (`PRAGMA wal_checkpoint(PASSIVE)`), keeping the log short so the
+  database's own 1,000-page autocheckpoint fires less often; what is durable
+  does not change, a checkpoint moves committed frames. For
+  the actions of the canary, the run is the only way they run: it is written
+  before the action is called, and an action whose run cannot be written is
+  not called. The canary moves in two stages, first the blockchain tools'
+  signing calls, then every state-modifying action of the service
+  dispatcher; `engines.durable.canary` (or `MATRIX_DURABLE_CANARY`) says how
+  far it has moved, `twins` for the first stage alone or
+  `twins,state_modifying`, the default, for both, and any other value moves
+  nothing. The outbox's one loop sends the attestation, trying again with
+  backoff, up to five attempts in all, only while an answer says it did not
+  land and was not sent (one sent and not confirmed is never sent again),
+  and publishes the feed entry once. It sends only a record the attestation
+  service would have queued: one the service refuses, such as one under a
+  schema that is not configured, is refused as it is at `off`. A replayed
+  `Idempotency-Key` runs nothing and gets the first answer, or, when that
+  answer is no longer held (it is kept in memory by the process that gave
+  it, for up to 24 hours and at most the latest 4,096), an error that says
+  so. A key belongs to the kind of credential and its subject, in the
+  platform's one spelling of a caller: every spelling of one wallet address
+  is one caller, and an `apple:` subject or a name is kept as given. A run
+  whose process died mid-call is closed FAIL with its effect marked
+  unknown, and is never run again. At `on`, an engine that cannot be built
+  does not leave the gateway serving as `off`: every action it would own is
+  refused, as one whose run cannot be written is, and `GET /ready` answers
+  503, as it does while the loop is not running or has stopped making
+  progress. The four tables hold digests and fixed words, never a raw
+  address, parameter or answer. A row the engine did not write never makes
+  it call or deliver anything: an outbox row it does not hold is given up
+  undelivered. Its own rows changed by hand are met where a change can be
+  seen: a replay is compared with the request its held answer was given to
+  as well as with the row, so it is never handed another request's answer,
+  and a run moved back to START whose steps say its call began keeps its
+  key. What no table can stand against is what was written being removed,
+  the key's own row or the step that says a call began: whoever can write
+  the database can make a replay run again. Nothing in it asks or overrides
+  the security gate. The dedicated `/api/v1` service routes call services
+  without the dispatcher and are not journaled; `POST
+  /api/v1/capabilities/{id}/invoke` goes through the dispatcher and is,
+  without reading an `Idempotency-Key`. The four tables are schema
+  migration 11, after the one-spelling rewrite of stored callers (10): a
+  database left at either earlier schema gets the tables, and the rewrite
+  exactly once, and so does one a build of this work from before the
+  renumbering left with the tables recorded as 10 and nothing recorded as
+  11. Two other kinds of database come only from unreleased builds of this
+  work and are not healed: one that recorded 11 after that, which never
+  takes the rewrite, and one whose tables an earlier build created in
+  another shape, which the engine will not run over. Discard either. What
+  the mode costs is measured, not assumed
+  (`tests/baseline/durable_g6_latency.json`, 5,000 calls a cell, on the
+  machine it names, over stand-in services that answer at once, with the
+  outbox loop's deliveries outside the timed calls). It times the service
+  dispatcher, the bridge's keyed sequence after the gate and a twin tool's
+  signing call; not the gate, where no durable code runs, and not the HTTP
+  route. `shadow` and `on` write a run of two transactions around each
+  journaled dispatch, which puts its p95 at several times that of the same
+  dispatch at `off`: at `on` about 8.6 times for the service dispatcher
+  (18.9 to 161.8 microseconds), 9.8 times for the bridge's keyed sequence
+  and 2.8 times for a twin tool's signing call, and 8.3, 9.7 and 3.0 times
+  at `shadow`. That is over the +10 percent latency budget. At `off` a
+  dispatch costs about a microsecond more than on the tree this work
+  merges into, timed in two interpreters taking turns block by block:
+  1.082 times its p95 (17.1 to 18.5 microseconds), between 1.039 and 1.093
+  over five stretches of the run, within the budget; the `off` cell timed
+  in one interpreter between `shadow` and `on` blocks came to 1.105 times,
+  just over it. The budget is the project owner's decision, still open:
+  this phase of the engines work can merge dark, with the mode `off` by
+  default, and is not closed until that gate, G6, holds. The other two exit gates hold at `on`.
+  G7, the plan's crash matrix at its ten Phase 2 cells (the bridge request
+  at W2 and W4, the dispatch at W1, W2 and W4, the attestation at W1, W2 and
+  W3, the feed entry at W1 and W2), is 100 seeded crashes a cell, and two more
+  a cell (20 in all) child interpreters killed at the instant, each recovered
+  over the same file
+  by a fresh engine holding nothing in memory: no
+  run is lost and no effect is made without its record, recovery continues
+  nothing, no effect happens twice, and two recoveries of one file reach
+  the same state (`tests/baseline/durable_g7_crash_matrix.json`, which also
+  says what the plan asks that the matrix does not measure). G8: of 1,104
+  bodies each sent twice to `POST /bridge/v1/action`, the 1,032 of the
+  172 actions a request may have dispatched act once each, and the 72 of
+  the twelve every door refuses on request (`REFUSED_ON_REQUEST` in
+  `runtime/access_policy.py`) are answered 403 before the gate and act not
+  at all (`tests/baseline/durable_g8_replay.json`)
 
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service
@@ -364,21 +829,32 @@ Every tool call an agent makes passes through the Unified Rexhepi Framework befo
 
 ## Web3 Capability Surface
 
-**195 capabilities across 21 categories** — smart contracts, DeFi,
-DeFi advanced (perps, options, synthetics, orderbook), NFTs, NFT
-finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
-governance (DAOs, veTokens, quadratic voting, RetroPGF), social
-(Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
-Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
-(CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
-(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK
-(including MPC signing, session keys and social recovery, all three
-catalogued as not yet available), oracles (Chainlink, Pyth,
-RedStone, API3, Keepers), storage (IPFS, Arweave, Filecoin, Ceramic,
-OrbitDB), compute & DePIN (Akash, Gensyn, Render), real-world assets,
-markets (prediction, auction), gaming, and infrastructure. The 21st
-category, security & wallets, has no capabilities in it yet. The 195
-are served by 43 of the 45 services in the service registry.
+**195 capabilities across 20 categories** — smart contracts
+(conversion to Solidity scaffolding, a conversion fee quote, templates),
+DeFi (loans against collateral, token swaps), DeFi advanced (an
+orderbook and Pyth pull prices), NFTs (minting, trading, rights,
+royalties, fractionalization, rentals, soulbound), NFT finance
+(NFT-backed loans, breeding, ERC-6551 accounts), identity (DIDs,
+credentials, reputation, KYC, agent registry, attestations), governance
+(DAOs, proposals, multisig, veTokens, quadratic voting, RetroPGF,
+disputes), social (profiles, messaging, Lens, Farcaster, Push, creator
+coins), creator platforms (Sound.xyz, Mirror, Paragraph, IP licensing),
+payments (records of payments, stablecoin transfers and cross-border
+remittances, and state channels), cross-chain (CCIP, Hyperlane,
+Wormhole, Stargate, Axelar),
+staking & restaking (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool),
+privacy & ZK (ZK proofs, and MPC signing, social recovery and session
+keys, all three catalogued as not yet available, and the last two
+refused at every door), oracles (Chainlink,
+Pyth, RedStone, API3, Keepers), storage (IPFS, Filecoin, Ceramic,
+OrbitDB), compute & DePIN (Akash, device rentals), real-world assets
+(tokenization, supply chain, carbon credits, insurance), markets
+(prediction markets, auctions, fundraising, securities, marketplace,
+loyalty, subscriptions), gaming, and infrastructure (AI agents, models,
+training data). Many are catalogued with `available: false`;
+`docs/blockchain.md` lists every capability by category and says which.
+The catalog also declares a Security & Wallets category that holds none.
+The 195 are served by 43 of the 45 services in the service registry.
 
 Every capability is catalogued in `runtime/capabilities/catalog.py`.
 Browse them at runtime, with the gateway API key setup generated
@@ -386,14 +862,12 @@ Browse them at runtime, with the gateway API key setup generated
 
 ```bash
 curl http://localhost:18790/api/v1/capabilities -H "Authorization: Bearer YOUR_API_KEY"             # list all
-curl http://localhost:18790/api/v1/capabilities/categories -H "Authorization: Bearer YOUR_API_KEY"  # 21 buckets
+curl http://localhost:18790/api/v1/capabilities/categories -H "Authorization: Bearer YOUR_API_KEY"  # 21 buckets, one (Security & Wallets) empty
 ```
 
 Gas is sponsored by the platform paymaster **within the policy the
-operator configures** — an allowlist of actions and a per-identity daily
-cap. Inside that policy a user pays no gas, and an operator who
-configures no policy sponsors everything. What is checked depends on who
-signs:
+operator configures**, and with no paymaster key configured nothing is
+sponsored. What is checked depends on who signs:
 
 - a smart-account operation the paymaster signs
   (`POST /api/v1/paymaster/sign`) is checked against the allowlist, with
@@ -402,38 +876,44 @@ signs:
   silently granted;
 - a transaction the platform signs itself for a capability, including
   the ones the services send through the shared web3 manager, is checked
-  against the allowlist and the cap only when a daily cap is set. With no
-  cap it is signed whatever the allowlist says. With a cap and an
-  allowlist, list `web3.send_transaction` or those will be refused;
-- a few signing paths are exempt from the policy altogether. They are
-  listed by name in `UNMETERED_PLATFORM_OPERATIONS`
-  (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
-  rather than guessed at. Three of them, an EAS attestation, a
-  time-critical one and a revocation, are signed with the platform key
-  whatever the allowlist and the cap say, and these reach them: the
-  `create_attestation`, `batch_attest` and `revoke_attestation`
-  capabilities; the service dispatcher's own record of each
-  state-modifying action it completes, queued and signed once 50 have
-  gathered; `convert_contract`'s attestation of a contract it deployed,
-  with `conversion.auto_deploy` on; the real-estate routes' attestations,
-  with `services.real_estate.enabled` set; and 13 actions of Neo's
-  blockchain tools `eas`, `agent_identity`, `identity`,
+  against the allowlist whenever one is configured, with or without a
+  daily cap, and, when a cap is set, against the cap and a signed-in
+  identity; one that fails is refused with the reason rather than
+  charged to the user. With neither an allowlist nor a cap it is signed
+  without a limit. With an allowlist, list `web3.send_transaction` or
+  those will be refused;
+- an attestation you ask for is metered the same way, under its own
+  `<capability>.<method>` name and against your identity: 10 actions of
+  Neo's blockchain tools `agent_identity`, `identity`,
   `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`,
-  `securities` and `supply_chain`, each signed when it is called.
-  `docs/blockchain.md` lists every path by file and function, and the
-  callers that reach the same code and sign nothing.
+  `securities` and `supply_chain`. The `create_attestation`,
+  `batch_attest` and `revoke_attestation` capabilities are refused at
+  every door, whoever asks, and are metered, as `attestation.attest`,
+  `attestation.batch_attest` and `attestation.revoke`, only where the
+  platform's own code calls them in process; the `eas`
+  tool's `attest`, `batch_attest` and `revoke` are refused too. The
+  platform's key signs no attestation a request composes and revokes
+  none a request names;
+- the platform's own records are exempt from the policy. They are listed
+  by name in `UNMETERED_PLATFORM_OPERATIONS`
+  (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
+  rather than guessed at, and are signed with the platform key whatever
+  the allowlist and the cap say: the service dispatcher's own record of
+  each state-modifying action it completes, queued and signed once 50
+  have gathered (with `engines.durable.mode` at `on`, sent by the durable
+  outbox loop as soon as its run ends instead); `convert_contract`'s attestation of a contract it
+  deployed, with `conversion.auto_deploy` on; and the real-estate routes'
+  attestations, with `services.real_estate.enabled` set. The list also
+  holds `GasSponsor.sponsor_transaction`, which signs whatever it is
+  handed and which nothing calls. `docs/blockchain.md` lists every path by
+  file and function, and the callers that reach the same code and sign
+  nothing.
 
-Not every transaction you take part in is the platform's to sign: some
-capabilities prepare an unsigned transaction for your own wallet to sign
-and send (advanced governance, auctions), and your wallet pays that gas.
-Fees that are not gas exist too, and are shown where they apply: the
-marketplace records a platform fee on a sale (owed to the platform
-wallet; the sale moves nothing, so nothing collects it), a DEX pool
-deducts its liquidity-provider fee from a swap's input, and the
-conversion pipeline writes a platform fee into the contracts it
-generates.
-
-Capabilities return
+Some operations carry a platform fee: the platform contracts pay theirs
+to each contract's `platformFeeRecipient`, which `scripts/deploy_all.py`
+sets to the configured NeoSafe address. The fees the code is known to
+take, with their rates, are listed under Fees in `docs/blockchain.md`,
+checked against the code by a test that finds a fee by its name. Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 
@@ -452,10 +932,26 @@ curl -X POST http://localhost:18790/chat \
 
 **Convert a contract**
 ```bash
-curl -X POST http://localhost:18790/chat \
+curl -X POST http://localhost:18790/api/v1/contracts/convert \
   -H "Content-Type: application/json" \
-  -d '{"agent": "trinity", "message": "Convert this rental agreement into a smart contract: Monthly rent of $2000, 12 month term, $4000 security deposit, late fee of $100 after 5 days"}'
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"source_lang": "pseudocode", "source_code": "contract Rental\n    state landlord: address\n    state tenant: address\n    state monthlyRent: uint256\n\n    function constructor(tenantAddr: address, rent: uint256)\n        landlord = msg.sender\n        tenant = tenantAddr\n        monthlyRent = rent\n\n    payable function payRent()\n        require(msg.sender == tenant, \"Only tenant can pay rent\")\n        require(msg.value == monthlyRent, \"Must pay exact rent\")\n"}'
 ```
+
+`YOUR_API_KEY` is the key setup generated (`gateway.api_key`). The
+converter reads structured pseudocode, Solidity or Vyper, not a
+description in prose; it answers with the Solidity draft and Glasswing's
+report on it. It does not skip comments in pseudocode: a function written
+inside one is read as a function. One inside a `/* */` whose `*/` begins a
+line comes back in the draft with its body, and the draft can compile with
+it, so remove code you have commented out before you convert. Unless the
+operator has turned on `conversion.auto_deploy`, it deploys nothing. On a
+gateway with no `blockchain.platform_wallet` set,
+the draft this example returns compiles as it comes back (checked with solc
+0.8.24). With a platform wallet set, the converter adds the platform fee to
+the draft unless the operator has turned off `conversion.inject_fees`, and
+that version does not compile: the fee's two setters use an `onlyOwner`
+modifier the draft does not define (Fees in `docs/blockchain.md`).
 
 **Check platform health**
 ```bash
@@ -467,10 +963,14 @@ The `models` map in `/health` says which providers **answered**, not which ones
 you configured a key for — each one is asked, with a short timeout, and they are
 all asked at once so the probe costs one timeout rather than five. `/ready` is
 the one an orchestrator should point at: it answers 503 when no provider
-answered, or when the platform is running in production with security in
-observe-only mode, and it deliberately tells you nothing else. Which check
-failed is in the log against the request id, because a readiness endpoint that
-announces what is not enforcing is telling whoever asks where to push.
+answered, when the platform is running in production with security in
+observe-only mode, when the security gate the gateway builds at startup did
+not come up or the loop that writes its state back has stopped, or, with
+`engines.durable.mode` at `on`, when durable execution could not be built or
+its outbox loop has stopped or stopped making progress, and it deliberately
+tells you nothing else. Which check failed is in the log against the request id, because a
+readiness endpoint that announces what is not enforcing is telling whoever
+asks where to push.
 
 **Get platform status** (it needs the API key; `/health` and `/ready` do not)
 ```bash
@@ -495,7 +995,7 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
                                                               (Omega: built, never called)
                                                                          ↓
                                                               45 Blockchain Services
-                                                              200+ Platform Actions
+                                                              253 Platform Actions
 ```
 
 ---
@@ -506,15 +1006,15 @@ All examples live in `examples/`. Each calls the platform's services, through th
 
 | Script | Description |
 |---|---|
-| `01_contract_conversion.py` | Plain English to audited Solidity, ready for you to deploy with your own wallet |
-| `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
-| `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
-| `04_parametric_insurance.py` | Weather-based crop insurance whose claim is decided by oracle data and recorded against the reserve — no payout is sent |
+| `01_contract_conversion.py` | A rental agreement written as pseudocode, converted to a Solidity draft with its Glasswing report, for you to compile and deploy with your own wallet |
+| `02_defi_loan.py` | Collateralised DeFi lending: create a loan, read it back, repay it |
+| `03_nft_with_royalties.py` | An ERC-721 collection with an EIP-2981 royalty: create it, mint, list and sell a token |
+| `04_parametric_insurance.py` | Crop insurance: a policy, the weather oracle's reading, and a claim the service judges against oracle data it fetches itself |
 | `05_marketplace_flow.py` | List, search and buy: the sale is recorded with its fee split; no escrow, and nothing moves on chain |
-| `06_eas_attestation_chain.py` | Writing EAS attestations of sample records, batching them and verifying one — what the platform attests on its own is narrower: a completed state-modifying action is queued, and written once 50 have gathered |
-| `07_revenue_to_neosafe.py` | Recording fees against the NeoSafe multisig wallet with `NeoSafeRouter`, which it calls directly; the gateway does not call it yet |
-| `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
-| `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |
+| `06_eas_attestation_chain.py` | Attest sample records through the attestation capabilities (where `blockchain.eas_schema` is a well-formed bytes32 UID, queued unless time-critical), batch them, verify one |
+| `07_revenue_to_neosafe.py` | Inject a fee into a generated contract, record sample fees with the NeoSafe router (in memory, nothing moves), and where the platform's fees actually go |
+| `08_oracle_routing.py` | The oracle gateway: price feeds, a weather reading and a VRF request |
+| `09_full_user_journey.py` | One user through seven services (DID, DAO, tokenization, NFT, governance, fundraising, staking) |
 
 ---
 
@@ -551,7 +1051,9 @@ launch:
 
 - **Env-only secrets, and a census that finds the ones that escape** —
   `runtime/config/validation.py` strips placeholder values (`YOUR_`,
-  `CHANGE-ME`, … in either spelling) and, with `MATRIX_ENV=production`,
+  `CHANGE-ME`, … in either spelling) from the env-only secret entries it
+  lists, warns about every other placeholder at startup, and, with
+  `MATRIX_ENV=production` (or `prod`; no other value reads as production),
   refuses to start if a required secret is missing from the environment.
   It also walks the loaded config for secret-shaped settings and reports
   any that no env-only entry covers — in production that refusal stops
@@ -561,20 +1063,48 @@ launch:
   signer arrives as `MATRIX_PAYMASTER_SIGNER_KEY` at the location the
   example documents, and the oracle keys at `oracle.weather.api_key` and
   `oracle.sports.api_key` — an entry at a path nothing reads bridges a
-  value to nowhere while calling the key handled.
+  value to nowhere while calling the key handled. The protocol services'
+  own keys are in the table too, each with its own variable: the KYC
+  provider's token and signing secret, and the creator-platform, storage,
+  CCIP tracker, RedStone, Farcaster, compute, MPC and payment-channel
+  keys. A check lists them from what the services' code reads, not from
+  the example file, which ships those blocks without their keys. Two
+  settings that only end like secrets — the LINK token's address and the
+  token-bound-account salt — are named as public values, so configuring
+  either does not stop a production boot.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
-- **Per-wallet rate limiting** — three-tier token bucket (wallet → API
-  key → IP). Limits are configurable under
-  `gateway.rate_limits.wallet`.
+- **Per-wallet rate limiting** — three token buckets, keyed by the
+  wallet session, then the operator key, then the client IP. Each has
+  its own limit: `gateway.rate_limit_rpm_wallet` and
+  `gateway.rate_limit_burst_wallet`; `…_authenticated` for the operator
+  key, which `gateway.rate_limit_rpm` and `gateway.rate_limit_burst`
+  also set and which the wallet bucket follows when it has no limit of
+  its own; and `…_anonymous` per IP.
 - **No production boot without enforcement** — with
   `MATRIX_ENV=production`, which `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set and `docker-compose.yml` defaults to, the
-  gateway refuses to start on the no-op security backend. The
-  `Dockerfile` installs only the public requirements, so a production
-  image needs the separately installed security core as well
-  (`CREDENTIALS_NEEDED.md`, section 5).
+  gateway refuses to start on the no-op security backend, and refuses
+  to start when the security core is installed but its gate cannot be
+  built or cannot load its saved state at startup, or when the core does
+  not name a caller the way the platform does. The gate is built
+  once, by the gateway, from its whole configuration. Outside production
+  a gate that did not come up leaves the gateway running and not ready,
+  and the platform hands no caller a gate and asks no other policy in its
+  place: every request the gate would decide is refused, reads included,
+  and so is every agent tool call, until a gateway starts with the gate
+  up. A gate that did come up and then faults on a single call is a
+  different case. With the security core installed, a call the gate could
+  not decide is refused under ENFORCE, reads included; under OBSERVE it is
+  refused when it could move value or change state, and a plain read goes
+  through. When the gate raises instead of answering, the HTTP gate and the
+  tool-call check refuse the call if it could move value and a plain read goes
+  through, in either mode; Trinity's hand-off to Neo refuses every request it
+  escalates then, reads included. The `Dockerfile`
+  installs only the public requirements, so a production image needs the
+  separately installed security core as well (`CREDENTIALS_NEEDED.md`,
+  section 5).
 - **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
   give you automatic HTTPS via Let's Encrypt, security headers, and
   WebSocket-aware proxying on top of the base `docker-compose.yml`.
@@ -585,8 +1115,12 @@ launch:
   stack: namespace, configmap, secret template, PVC, deployment with
   liveness / readiness / startup probes, service, and ingress.
 - **OpenTelemetry bridge** — `runtime/monitoring/otel.py` is a
-  soft-failing OTLP push exporter. Set `monitoring.otel.endpoint`
-  (or `OTEL_EXPORTER_OTLP_ENDPOINT`) to enable it.
+  soft-failing OTLP push exporter. It runs only with
+  `monitoring.otel.enabled` set to true and an endpoint in
+  `monitoring.otel.endpoint` (or `MATRIX_OTEL_ENDPOINT`), and only when the
+  `opentelemetry` packages, which no requirements file installs, are
+  installed; otherwise it stays a no-op, with a warning in the log when it
+  was enabled and could not start.
 - **Foundry contract tests** — `foundry.toml` pins solc 0.8.20 and
   `scripts/build-contracts.sh` is a one-shot bootstrap that installs
   forge-std + OpenZeppelin, compiles, and runs every test under
@@ -652,7 +1186,7 @@ The gateway serves a built-in web interface:
 
 - `http://localhost:18790` — Landing page
 - `http://localhost:18790/chat` — Web chat with Trinity
-- `http://localhost:18790/audit` — Glasswing security audit service
+- `http://localhost:18790/audit` — Glasswing audit: what the scan checks and the report it returns
 - `http://localhost:18790/marketplace` — Plugin marketplace
 - `http://localhost:18790/glasswing` — Glasswing security hub and badge registry
 - `http://localhost:18790/learn` — Educational courses and certifications
@@ -662,46 +1196,56 @@ The gateway serves a built-in web interface:
 ## Professional Services
 
 - **Glasswing Security Audit** — the automated scan itself is in this
-  repository and runs locally as part of the conversion pipeline, free. The
-  paid hosted service at `/audit` is **not live**: no audit backend is wired
-  into the gateway, so `POST /audit/request` answers `503 not_available`
-  rather than taking an order it cannot fill. The prices on that page
-  describe the intended service, not one you can buy today.
-- **Contract Conversion** — likewise: the pipeline is here and free to run;
-  the hosted service page describes an offering that is not yet accepting
-  work.
+  repository and runs locally as part of the conversion pipeline, free. A
+  paid hosted audit is **not live**: no audit backend is wired into the
+  gateway, so `POST /audit/request` answers `503 not_available` rather than
+  taking an order it cannot fill. The page at `/audit` describes the scan
+  and the report it returns; it offers no tiers and takes no order.
+- **Contract Conversion** — likewise: the pipeline is here and free to run
+  (`POST /api/v1/contracts/convert`). The page at `/services/conversion`
+  describes what a conversion returns; it offers no plans and takes no
+  order.
 
 ## Glasswing Security Badges
 
-`POST /badge/issue` audits a contract's source with Glasswing and, on a
-pass, records a security badge with a page (`/badge/{badge_id}`), a status
-endpoint and an embed snippet. No EAS attestation is written for a badge
-yet, so the gateway that issued it is the only place to check one. The
-registry at `/badges` is public, but the badge page, its status, its embed
-and `/badge/widget.js` are not in the gateway's public set: with an API key
-set, a visitor without the key is answered 401 on each. A badge expires
-after one year; `BadgeManager` has a renewal method, but no route calls it.
+A contract whose source passes the platform's own Glasswing audit can be
+issued a security badge with `POST /badge/issue` (behind the gateway's API
+key); the gateway audits the source itself, so a request cannot supply the
+verdict. A badge is a record in the gateway's database, stored with a hash of
+that audit report, with a page (`/badge/{badge_id}`), a status endpoint and an
+embed snippet. No EAS attestation is written for a badge, so the gateway that
+issued it is the only place to check one. The registry at `/badges` is public,
+but the badge page, its status, its embed and `/badge/widget.js` are not in the
+gateway's public set: with an API key set, a visitor without the key is
+answered 401 on each. A badge expires after one year; `BadgeManager` has a
+renewal method, but no route calls it.
 
 See `/glasswing` for the badge registry.
 
 ## Learn
 
-Three comprehensive courses for developers at every level:
+Three courses, free and open source in `education/`; nothing sells them.
+Course 01 ships exercises and solutions, course 02 a vulnerable-and-fixed
+contract pair to work through, and course 03 its lessons alone:
 
-- **Introduction to The Matrix** ($49) — Build plugins, deploy contracts with your own wallet, use the SDK
-- **Smart Contract Security** ($79) — Reentrancy, access control, Glasswing methodology
-- **DeFi from Scratch** ($49) — Loans, NFTs, DAOs, staking, explained simply
+- **Introduction to The Matrix** — Build plugins, deploy contracts with your own wallet, use the SDK
+- **Smart Contract Security** — Reentrancy, access control, Glasswing methodology
+- **DeFi from Scratch** — Loans, NFTs, DAOs, staking, explained simply
 
-See `/learn` for details or browse the open source content in `education/`.
+See `/learn` for details.
 
 ## Get Certified
 
-The gateway runs three certification exams (`GET /certification/tracks`,
-`POST /certification/start`, `POST /certification/submit`). A passing score
-records a certificate with an ID that `GET /certification/{cert_id}` looks
-up. No on-chain attestation is written for a certificate yet, and the
-gateway takes no payment for an exam; the prices are the ones the tracks
-list:
+The gateway has three certification tracks (`GET /certification/tracks`,
+`POST /certification/start`, `POST /certification/submit`). It serves no
+exam questions yet: `start` opens an attempt and answers with the track's
+intended question count and time limit, and `submit` scores the answers
+against the track's 10 sample questions in
+`runtime/certification/assessments.py`, with no time limit enforced. A
+passing score records a certificate with an ID that `GET /certification/{cert_id}` looks
+up. No on-chain attestation is written for a certificate: the record has an
+`eas_uid` field that nothing fills. The exam routes take no payment; the
+prices below are the intended fees, as the tracks list them:
 
 - **Certified Developer** ($149) — Plugins, SDK, deploying what the pipeline generates
 - **Certified Security Auditor** ($249) — Glasswing methodology, vulnerability analysis
@@ -711,11 +1255,15 @@ list:
 
 ## Plugin Development
 
-Build plugins for The Matrix. The marketplace quotes paid plugins with a
-90/10 split, 90% to the developer (`PLATFORM_COMMISSION` in
-`runtime/marketplace/plugin_store.py`), but a paid plugin cannot be bought
-yet: nothing on this server records a paid purchase, takes a payment or pays
-a developer. A free plugin is recorded as owned when it is bought.
+Build plugins for The Matrix. The plugin loader (`runtime/plugins/loader.py`)
+can import a package from `plugins/installed/`, but nothing in the gateway loads
+one: placing a package there runs nothing today. You can load one yourself with
+`PluginLoader.load_all()`. The marketplace lists plugins and does not install
+them. A paid plugin cannot be bought yet: no purchase path completes one, so the
+purchase route answers `501` for a paid plugin, and nothing on this server takes
+a payment or pays a developer. The platform commission on paid plugins is an
+operator setting (`plugin_marketplace.commission_rate`); the published Terms of
+Service state 10%.
 
 ```bash
 # See the example plugin
@@ -725,17 +1273,17 @@ cat runtime/plugins/example_plugin.py
 cat docs/PLUGIN_DEVELOPMENT.md
 ```
 
-Submit a plugin with `POST /marketplace/plugins/submit`. A submission is
-stored as pending; nothing here reviews or approves one yet, so it does not
-appear in the listing.
+Submit a listing with `POST /marketplace/plugins/submit` and the gateway's API
+key (the `/marketplace` page cannot submit one). The listing is stored as
+`pending`; nothing in this gateway reviews, approves or activates it.
 
 ---
 
 ## JavaScript SDK
 
-```bash
-npm install @the-matrix/sdk
-```
+`sdk-js/` is not published to npm. Build it from your clone (`cd sdk-js &&
+npm install && npm run build`) and install it into your app from that
+directory (`npm install <path to your clone>/sdk-js`).
 
 ```typescript
 import { MatrixClient } from '@the-matrix/sdk';

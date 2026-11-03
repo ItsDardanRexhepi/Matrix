@@ -13,7 +13,7 @@ import uuid
 
 import aiohttp
 
-from runtime.models.model_interface import ModelInterface, ModelResponse
+from runtime.models.model_interface import ModelInterface, ModelResponse, tool_function
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +47,7 @@ class GeminiClient(ModelInterface):
 
         payload: dict = {"contents": contents}
         if tools:
-            payload["tools"] = [{"function_declarations": [
-                {"name": t["name"], "description": t.get("description", ""), "parameters": t.get("parameters", {})}
-                for t in tools
-            ]}]
+            payload["tools"] = [{"function_declarations": [tool_function(t) for t in tools]}]
 
         url = f"{self.base_url}/models/{self.model}:generateContent"
         headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}

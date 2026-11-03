@@ -228,7 +228,8 @@ class PriceFeed:
     def _read_chainlink_blocking(addr: str, rpc: str, timeout: float) -> Optional[dict]:
         """Synchronous web3 calls; runs in a worker thread, never on the loop."""
         from web3 import Web3
-        w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": timeout}))
+        from runtime.blockchain.web3_manager import broadcast_safe_http_provider
+        w3 = Web3(broadcast_safe_http_provider(rpc, timeout=timeout))
         agg = w3.eth.contract(address=Web3.to_checksum_address(addr), abi=AGGREGATOR_ABI)
         decimals = agg.functions.decimals().call()
         _, answer, _, updated_at, _ = agg.functions.latestRoundData().call()

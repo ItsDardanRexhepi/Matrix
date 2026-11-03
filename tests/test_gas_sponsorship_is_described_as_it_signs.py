@@ -1,7 +1,7 @@
 """What the code and the documents say about gas sponsorship is what the
 signers do.
 
-Two statements had drifted from the code:
+Three statements had drifted from the code:
 
 * runtime/blockchain/gas_sponsor.py said its paymaster "funds the operations
   the policy allows; the rest are refused", and that sponsor_transaction pays
@@ -20,12 +20,19 @@ Two statements had drifted from the code:
 
 * sponsorship.py called its exemptions fixed call data the model never
   composes, and gas_sponsor.sponsor "the gas-sponsorship accounting path".
-  The attestation capabilities reach the EAS exemptions with a recipient,
+  The attestation capabilities reached the EAS exemptions with a recipient,
   payload, uid or schema the caller supplies, and gas_sponsor.sponsor signs
-  whatever transaction it is handed. The test drives revoke_attestation's
-  method and a time-critical create_attestation under a policy that allows
-  nothing and caps at zero, and checks that the exemption list and the three
-  documents name the capabilities that got signed.
+  whatever transaction it is handed.
+
+  The capabilities have since been moved off the exemptions: revoke_attestation
+  and create_attestation are metered as `attestation.revoke` and
+  `attestation.attest`, and only the platform's own records keep the EAS
+  exemptions. The test drives both capabilities' entry points, and the
+  platform's own time-critical record, under a policy that allows nothing and
+  caps at zero: the two capabilities have to be refused before anything is
+  signed, the platform record has to sign, the exemption list must not name the
+  capabilities, and each of the three documents has to say, where it names
+  them, that they are metered.
 """
 from __future__ import annotations
 
@@ -172,16 +179,18 @@ def _fake_web3(sent: list):
     return FakeWeb3
 
 
-def test_the_exemptions_name_the_capabilities_that_reach_them(tmp_path, monkeypatch):
+def test_the_capabilities_are_metered_and_only_the_platforms_records_are_exempt(
+        tmp_path, monkeypatch):
     pytest.importorskip("eth_account")
     pytest.importorskip("eth_abi")
     import asyncio
+    import re
 
     import web3
     from eth_account import Account
 
     from runtime.blockchain.services.attestation.service import AttestationService
-    from runtime.blockchain.sponsorship import SponsorshipPolicy
+    from runtime.blockchain.sponsorship import SponsorshipDenied, SponsorshipPolicy
 
     key = Account.create()
     config = {
@@ -200,30 +209,78 @@ def test_the_exemptions_name_the_capabilities_that_reach_them(tmp_path, monkeypa
 
     sent: list = []
     monkeypatch.setattr(web3, "Web3", _fake_web3(sent))
+    # A metered signer prices the transaction before the policy decides; a
+    # fixed price keeps that from reaching the network, so a refusal is the
+    # policy's and not a failed price fetch.
+    from runtime.blockchain.price_feed import PriceFeed
+
+    async def _price(self, **_kw):
+        return {"price": 3000.0}
+
+    monkeypatch.setattr(PriceFeed, "eth_usd", _price)
     service = AttestationService(config)
-    asyncio.run(service.revoke("0x" + "ab" * 32, "0x" + "cd" * 32))
-    revoke_signed = len(sent) == 1
-    asyncio.run(service.attest(schema_uid="0x" + "cd" * 32, data={"agent": "caller-chosen"},
-                               recipient="0x" + "77" * 20, time_critical=True))
-    attest_signed = len(sent) == (2 if revoke_signed else 1)
+    caller = "0x" + "77" * 20
+    refused = []
+    try:
+        asyncio.run(service.revoke("0x" + "ab" * 32, "0x" + "cd" * 32,
+                                   caller_identity=caller))
+    except SponsorshipDenied:
+        refused.append("revoke_attestation")
+    try:
+        asyncio.run(service.attest_for_caller(
+            schema_uid="0x" + "cd" * 32, data={"agent": "caller-chosen"},
+            recipient=caller, time_critical=True, caller_identity=caller))
+    except SponsorshipDenied:
+        refused.append("create_attestation")
+    assert not sent, (
+        f"a caller's attestation capability was signed with the platform key under a "
+        f"policy that allows nothing and caps at zero ({len(sent)} sent)")
+    assert refused == ["revoke_attestation", "create_attestation"], (
+        f"only {refused} were refused by a policy that allows nothing")
+
+    asyncio.run(service.attest(schema_uid="0x" + "cd" * 32, data={"agent": "system"},
+                               recipient=caller, time_critical=True))
+    assert len(sent) == 1, (
+        "precondition: the platform's own time-critical record signs as its exemption")
 
     source = (REPO / "runtime/blockchain/sponsorship.py").read_text()
     head, _, tail = source.partition("UNMETERED_PLATFORM_OPERATIONS = {")
     comment = " ".join(ln.strip().lstrip("#") for ln in head.splitlines()[-40:]
                        if ln.strip().startswith("#"))
-    listing = " ".join((comment + " " + tail.split("}", 1)[0]).split())
+    entries = tail.split("}", 1)[0]
+    listing = " ".join((comment + " " + entries).split())
 
     assert "never composes" not in listing, (
         "sponsorship.py still says the exempt call data is never composed by the model")
     assert "accounting path" not in listing, (
         "sponsorship.py still calls gas_sponsor.sponsor an accounting path")
-    reached = [name for name, signed in (("revoke_attestation", revoke_signed),
-                                         ("create_attestation", attest_signed)) if signed]
-    assert reached, "precondition: an exempt signer signed under the policy"
-    silent = [rel for rel in ("runtime/blockchain/sponsorship.py",) + POLICY_DOCS
-              for name in reached
-              if name not in (listing if rel.endswith(".py")
-                              else " ".join((REPO / rel).read_text().split()))]
-    assert not silent, (
-        f"{reached} were signed with the platform key under a policy that allows "
-        f"nothing and caps at zero, and these do not name them: {sorted(set(silent))}")
+    # The two capabilities sign under operation names, and it is those names an
+    # exemption would list. Comparing the capability names with the entries, as
+    # this did, could never fail: the entries are operation names.
+    import ast as _ast
+    from runtime.blockchain.sponsorship import UNMETERED_PLATFORM_OPERATIONS
+    svc_source = (REPO / "runtime/blockchain/services/attestation/service.py").read_text()
+    svc_tree = _ast.parse(svc_source)
+    bodies = {n.name: _ast.get_source_segment(svc_source, n) for n in _ast.walk(svc_tree)
+              if isinstance(n, _ast.AsyncFunctionDef)}
+    operations = {
+        "create_attestation": re.findall(r'operation="([\w.]+)"', bodies["attest_for_caller"]),
+        "revoke_attestation": re.findall(r'platform_signer\(\s*self\.config,\s*"([\w.]+)"',
+                                         bodies["revoke"]),
+    }
+    assert all(len(names) == 1 for names in operations.values()), operations
+    assert "eas.attest" in UNMETERED_PLATFORM_OPERATIONS, "precondition: the exemption keys are operations"
+    listed = [f"{cap} ({names[0]})" for cap, names in operations.items()
+              if cap in refused and names[0] in UNMETERED_PLATFORM_OPERATIONS]
+    assert not listed, (
+        f"UNMETERED_PLATFORM_OPERATIONS exempts {listed}; they are metered")
+    unsaid = []
+    for rel in POLICY_DOCS:
+        text = " ".join((REPO / rel).read_text().split())
+        for name in refused:
+            naming = [p for p in re.split(r"(?<=[.;])\s+", text) if f"`{name}`" in p]
+            if not naming or not any("metered" in p for p in naming):
+                unsaid.append(f"{rel}: {name}")
+    assert not unsaid, (
+        f"{refused} are refused by the sponsorship policy, and where these documents "
+        f"name them they do not say they are metered: {unsaid}")

@@ -219,6 +219,18 @@ def find_fabrication_shape() -> set[str]:
 #   Its census verdict is unchanged: category 5 (it planted an empty snapshot
 #   that shadowed real balance state), never a fabrication — a proposal record
 #   IS the artifact. Its presence here was always a shape match, not a finding.
+# STRUCK (43 -> 38), the rest of the attest-money F19 class. Each took the
+#   remedy the ratchet names — RECORDED_UNSETTLED, settled=False /
+#   value_moved=False — and left the shape because the success literal it
+#   stamped is gone. Every one was a local record of value changing hands that
+#   said it had changed hands, and was attested as settled:
+#     agent_identity/service.py::AgentIdentityService.trade_model_access  "traded"
+#     agent_identity/service.py::AgentIdentityService.sell_training_data  "sold"
+#     gaming/service.py::GamingService.enter_tournament                   "entered"
+#     gaming/service.py::GamingService.trade_item                         "completed"
+#     gaming/service.py::GamingService.place_prediction_bet               "placed"
+#   Driven through the dispatcher in
+#   tests/test_a_trade_that_moved_nothing_is_not_settled.py.
 KNOWN_FABRICATION_SHAPE = {
     # ADDED 2026-08-12 (46 -> 47) — and it became VISIBLE rather than newly
     # wrong. Cluster B moved queue_timelock's write from
@@ -233,8 +245,6 @@ KNOWN_FABRICATION_SHAPE = {
     # carried.
     "governance/service.py::GovernanceService.queue_timelock",
     "nft_services/rights.py::RightsManagement.transfer_rights",
-    "agent_identity/service.py::AgentIdentityService.trade_model_access",
-    "agent_identity/service.py::AgentIdentityService.sell_training_data",
     "dao_management/factory.py::DAOFactory.deploy",
     "dex/pools.py::LiquidityPoolManager.create_pool",
     "did_identity/service.py::DIDService.create_did",
@@ -251,10 +261,7 @@ KNOWN_FABRICATION_SHAPE = {
     "fundraising/vesting.py::VestingManager.create_vesting",
     "gaming/milestone_funding.py::MilestoneFunding.create_funding",
     "gaming/service.py::GamingService.register_game",
-    "gaming/service.py::GamingService.enter_tournament",
-    "gaming/service.py::GamingService.trade_item",
     "gaming/service.py::GamingService.create_prediction_market",
-    "gaming/service.py::GamingService.place_prediction_bet",
     "gaming/service.py::GamingService.resolve_market",
     "gaming/vetting.py::VettingPipeline.submit_for_review",
     "governance/service.py::GovernanceService.propose_multisig",
@@ -398,15 +405,25 @@ def test_the_measured_count_is_recorded():
         nft_services/service.py::NFTService.rent
         nft_services/service.py::NFTService.mint_soulbound
 
-    Four more in the same pass are fixed the same way and were never in this
-    inventory, because the detector's assignment-only write clause or its
-    `not awaits` clause did not see them: NFTService.fractionalize,
-    batch_mint, royalty_claim, bridge_nft, dynamic_update, and
-    RWAService.fractional_buy / claim_income / verify_provenance. The count
-    moves by three; the fix is wider than the count, which is what "43 under
-    an assignment-only write clause" means.
+    Eight more in the same pass are fixed the same way and were not in this
+    inventory then. NFTService.fractionalize had left it at 47 -> 46, when it
+    began to await an on-chain ownership read; batch_mint, royalty_claim,
+    bridge_nft, dynamic_update, and RWAService.fractional_buy / claim_income /
+    verify_provenance were never in it, because the detector's
+    assignment-only write clause or its `not awaits` clause did not see them.
+    The count moves by three; the fix is wider than the count, which is what
+    "43 under an assignment-only write clause" means.
 
-    43 -> 44, UPWARD, ON A METHOD THAT GOT BETTER. SocialService.create_community
+    43 -> 38, THE REST OF THAT CLASS (attest-money F19). The pass above fixed
+    `attest_achievement` and left `trade_item` beside it in the same service,
+    attested as settled and announced on the public feed at its price. It and
+    the four other local records of value changing hands in the inventory —
+    gaming's enter_tournament and place_prediction_bet, agent_identity's
+    trade_model_access and sell_training_data — now say `recorded_unsettled`.
+    `marketplace.buy_item` took the same fix and was never in this inventory:
+    it stamped no status literal at all, which this shape requires.
+
+    38 -> 39, UPWARD, ON A METHOD THAT GOT BETTER. SocialService.create_community
     minted an id, stamped "active" and stored NOTHING, which is below this
     shape's floor rather than above it — the detector requires a write. Giving
     it the store its sibling create_profile has always had is what made the
@@ -414,8 +431,8 @@ def test_the_measured_count_is_recorded():
     entry arriving because a method stopped fabricating is worth as much
     explanation as one leaving for a structural reason.
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 44
-    assert len(find_fabrication_shape()) == 44
+    assert len(KNOWN_FABRICATION_SHAPE) == 39
+    assert len(find_fabrication_shape()) == 39
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -768,16 +785,38 @@ def f(self, k):
 
 
 def test_the_shape_inventory_is_at_the_documented_baseline():
-    """43 under an ASSIGNMENT-ONLY write clause — the scope is part of the
+    """38 under an ASSIGNMENT-ONLY write clause — the scope is part of the
     number. It was 47 until `NFTService.fractionalize` stopped matching the
     shape: it now awaits an on-chain ownership read before minting an id, so
     the ratchet tightened by one (the §CD sibling pass over NEW-89). 46 -> 43
     on the attest-money cluster, where three took the RECORDED_UNSETTLED
-    remedy. 43 -> 44 when SocialService.create_community started keeping the
+    remedy, and 43 -> 38 when the rest of its F19 class (gaming's trade,
+    tournament entry and bet; agent_identity's model trade and data sale) took
+    it too. 38 -> 39 when SocialService.create_community started keeping the
     record it had always minted an id for, which is how a method that stored
     nothing enters an inventory of methods that store. See `_shape`'s docstring
-    for the measured +5 the call-form gap would add, which is deliberately NOT
-    included pending adjudication."""
+    for the measured +5 the call-form gap
+    would add, which is deliberately NOT included pending adjudication."""
     current = find_fabrication_shape()
-    assert len(KNOWN_FABRICATION_SHAPE) == 44
+    assert len(KNOWN_FABRICATION_SHAPE) == 39
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current
+
+
+def test_no_method_that_left_the_inventory_is_said_never_to_have_been_in_it():
+    """The 46 -> 43 note listed NFTService.fractionalize first among eight
+    methods it said had never been in this inventory, and the baseline test
+    above says the count was 47 until fractionalize stopped matching. A method
+    this file records as having left the inventory is not one it may say was
+    never in it."""
+    import re
+    from pathlib import Path
+
+    text = " ".join(Path(__file__).read_text(encoding="utf-8").split())
+    left = set(re.findall(r"until `(\w+\.\w+)` stopped matching", text))
+    assert left, "re-derive this test: the file no longer records a method leaving the inventory"
+    for clause in re.split(r"[.;] ", text):
+        if re.search(r"\bnever in (?:this inventory|it)\b", clause):
+            named = sorted(name for name in left if name in clause)
+            assert not named, (
+                f"{named} left this inventory (see the baseline test) and is said "
+                f"never to have been in it: {clause}")

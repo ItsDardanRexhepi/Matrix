@@ -1,28 +1,27 @@
 """Whether an item may be shown to everyone: the platform's one reading.
 
-Three surfaces decide whether something is public, and they used to decide it
-with two different functions. `SocialService` filtered its own feed with
-`_is_public_item`, and the dispatcher's feed ingest and the HTTP ripple used
-`service_dispatcher.declares_non_public`, whose docstring called it
-"SocialService's reading" although it was not. The two disagreed on inputs a
-caller writes:
+Three surfaces decide whether something is public, and each of them calls this
+function:
 
-  * ``{"visibility": " public"}`` — the dispatcher stripped the spaces and
-    published the share to the public feed; SocialService did not strip, and
-    its own feed hid the same item.
-  * ``{"visibility": None}`` inside ``proof_data`` — the dispatcher skipped
-    the null and published; SocialService read it as the word "none" and hid
-    the item.
-  * a top-level ``"visibility": "public"`` beside a ``proof_data`` that says
-    ``"followers"`` — SocialService read only the top level and showed it.
+  * `SocialService._is_public_item`, which filters SocialService's own feed;
+  * `SocialFeedEngine.ingest`, the door of the platform's public,
+    unauthenticated feed (/social/feed), to which the service dispatcher
+    publishes every settled state-modifying action, `send_message` (that is,
+    `social.share_proof`) included;
+  * `ServiceRoutes._maybe_ripple`, which announces an action to every
+    /api/v1/events/stream subscriber.
 
-Each disagreement published, or showed, an item that another surface treated
-as private. So both surfaces now call this function, and it takes the
-strictest of the readings:
+The second and third used to read nothing at all: a proof share whose
+visibility was "followers" was stored on the public feed with its proof_data
+and rippled with its actor, while SocialService's own feed hid it. One function
+means an item one surface hides is hidden by all three. It takes the strictest
+reading, because a caller writes these values:
 
   * a ``visibility`` that is present, at the top of an item or inside its
     ``proof_data``, must be the word "public" in any letter case, with nothing
-    around it; anything else, an explicit null included, is not public;
+    around it; anything else — ``" public"``, an explicit null, "followers" —
+    is not public, and a top-level "public" does not outrank a ``proof_data``
+    that says otherwise;
   * an explicit ``private`` or ``is_private`` flag that is set (anything but
     absent, ``None`` or ``False``) is not public;
   * a ``proof_data`` that is present and is not a mapping cannot be read, and

@@ -18,7 +18,9 @@ from typing import Any, Callable, Awaitable
 # instead would be NEW-25 — a caller reimplementing a shared contract inline —
 # which is the exact defect this engagement keeps finding.
 from gateway.error_contract import classify as _classify_exception
-from runtime.security import agent_access_allowed
+from runtime.auth.identity import canonical_identity
+from runtime.durable import wiring as _durable_wiring
+from runtime.security import CALLER_IDENTITY_KEY, agent_access_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -228,15 +230,18 @@ class ToolDispatcher:
         """
         try:
             from runtime.skills.loader import SkillLoader
+            from runtime.shipped import shipped_folders
+            # The skills/ an installed package carries, then the workspace's
+            # (a clone's root, read once): a skill there replaces the packaged
+            # one of the same name (runtime/shipped.py).
             workspace = config.get("workspace", ".")
-            loader = SkillLoader(f"{workspace}/skills")
-            skills = loader.load_all()
-            for skill in skills:
-                self.register(
-                    skill.name,
-                    _with_server_config(skill.as_tool_handler(), config),
-                    skill.to_tool_schema(),
-                )
+            for skills_dir in shipped_folders("skills", folder=workspace):
+                for skill in SkillLoader(str(skills_dir)).load_all():
+                    self.register(
+                        skill.name,
+                        _with_server_config(skill.as_tool_handler(), config),
+                        skill.to_tool_schema(),
+                    )
         except Exception as e:
             logger.debug(f"Skill loading skipped: {e}")
 
@@ -312,6 +317,10 @@ class ToolDispatcher:
         read, and what a client may read.
         """
         ref = _ref()
+        # One wallet is one caller: the identity is taken in the one spelling
+        # the platform names a caller by (runtime/auth/identity.py) before the
+        # boundary, the tool and anything the tool signs see it.
+        caller_identity = canonical_identity(caller_identity)
 
         handler = self._tools.get(tool_name)
         if not handler:
@@ -329,8 +338,22 @@ class ToolDispatcher:
         # trusted agent_name from the request context (NOT on tool arguments), so a
         # subverted agent cannot reach another agent's tools. For the platform_action
         # mega-tool the specific action is checked too.
+        #
+        # The seam is handed WHO is calling as well: the caller the entry point
+        # bound, built from this method's own parameters and never from
+        # `arguments`, which the model writes. Both boundary calls below used to
+        # pass no context, so any decision the core makes about a particular
+        # caller could not be made here: the one frame that knew the caller
+        # dropped it one line before asking. The core decides; this only makes
+        # sure it is told.
+        access_ctx = {
+            key: value
+            for key, value in ((CALLER_IDENTITY_KEY, caller_identity), ("caller_kind", caller_kind))
+            if value
+        }
         action = arguments.get("action") if tool_name == "platform_action" else None
-        allowed, reason = agent_access_allowed(agent_name, tool_name, action)
+        allowed, reason = agent_access_allowed(agent_name, tool_name, action,
+                                               context=dict(access_ctx))
         if not allowed:
             logger.warning("Agent '%s' DENIED tool '%s'%s: %s", agent_name, tool_name,
                            f" action '{action}'" if action else "", reason)
@@ -349,12 +372,41 @@ class ToolDispatcher:
         # refusals below see only the two dispatching tools, so without this the
         # rest of the toolset was fenced by the agent name alone.
         if caller_kind not in ("operator", ""):
-            allowed, reason = agent_access_allowed(self.NON_OPERATOR_AGENT, tool_name, action)
+            allowed, reason = agent_access_allowed(self.NON_OPERATOR_AGENT, tool_name, action,
+                                                   context=dict(access_ctx))
             if not allowed:
                 logger.warning("Caller '%s' DENIED tool '%s'%s as agent '%s': %s", caller_kind,
                                tool_name, f" action '{action}'" if action else "",
                                agent_name, reason)
                 return ToolOutcome.failure(f"[DENIED] {reason}", code="denied", ref=ref)
+
+        # What no caller may have a tool run, the operator key included:
+        # smart_contract's send had the platform's key sign a contract call the
+        # request composed (runtime/access_policy.py REFUSED_TOOL_CALLS). The tool
+        # refuses it too; this answers before the handler is entered.
+        from runtime.access_policy import refused_tool_call
+        refused = refused_tool_call(tool_name, arguments)
+        if refused:
+            logger.warning("DENIED tool '%s' action '%s' for every caller: %s",
+                           tool_name, arguments.get("action"), refused)
+            return ToolOutcome.failure(f"[DENIED] {refused}", code="denied", ref=ref)
+
+        # What no caller may have dispatched, the operator key and a caller-less
+        # dispatch included: the attestation service's attest, batch_attest and
+        # revoke sign what the request composes with the platform's key
+        # (runtime/access_policy.py REFUSED_ON_REQUEST). request_execution takes
+        # no service override (runtime/agents/handoff.py), platform_action does.
+        if tool_name in self.ACTION_DISPATCH_TOOLS:
+            from runtime.access_policy import refused_on_request
+            args = arguments if isinstance(arguments, dict) else {}
+            refused = refused_on_request(
+                args.get("action"),
+                args.get("service") if tool_name == "platform_action" else None,
+            )
+            if refused:
+                logger.warning("DENIED tool '%s' action '%s' for every caller: %s",
+                               tool_name, args.get("action"), refused)
+                return ToolOutcome.failure(f"[DENIED] {refused}", code="denied", ref=ref)
 
         # Session boundary for the dispatching tools. A session is refused, on
         # its own routes, operations such as a cross-border send; through chat
@@ -389,6 +441,24 @@ class ToolDispatcher:
                     f"[DENIED] {caller_refusal_message(caller_kind, refused)}",
                     code="denied", ref=ref,
                 )
+            # The platform's wallet or a platform credential acting on what the
+            # request names (runtime/access_policy.py REFUSED_TO_A_SESSION), and
+            # the few actions held to the caller's own address, read on the
+            # parameters the service will see: request_execution merges any
+            # other argument into them (runtime/agents/handoff.py as_tool).
+            from runtime.access_policy import refused_to_the_caller
+            raw = args.get("params")
+            view = dict(raw) if isinstance(raw, dict) else ({} if raw is None else raw)
+            if tool_name == "request_execution" and isinstance(view, dict):
+                view.update({k: v for k, v in args.items() if k not in ("action", "params")})
+            refused = refused_to_the_caller(
+                caller_kind, args.get("action"),
+                args.get("service") if tool_name == "platform_action" else None,
+                params=view, identity=caller_identity)
+            if refused:
+                logger.warning("%s DENIED tool '%s' action '%s': %s", caller_kind, tool_name,
+                               args.get("action"), refused)
+                return ToolOutcome.failure(f"[DENIED] {refused}", code="denied", ref=ref)
 
         # Strip anything the model may not assert, then inject the value the
         # entry point bound — the same treatment agent_name already gets. It
@@ -422,9 +492,20 @@ class ToolDispatcher:
             SponsorshipDenied, set_caller_identity, reset_caller_identity,
         )
         _identity_token = set_caller_identity(caller_identity)
+        # Engines Phase 2 — durable execution. None with engines.durable.mode
+        # off (the default): the tool is called exactly as before. In shadow and
+        # on, a twin tool's platform-key signing call is journaled around the
+        # call; in mode on one whose run cannot be recorded is not made
+        # (runtime/durable/wiring.py DurableEngine.run_tool).
+        _durable = _durable_wiring.current()
 
         try:
-            result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
+            if _durable is None:
+                result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
+            else:
+                result = await _durable.run_tool(
+                    tool_name, arguments, caller_identity,
+                    lambda: asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT))
             result_str = str(result)
             logger.info(f"Tool result: {tool_name} -> {result_str[:200]}{'...' if len(result_str) > 200 else ''}")
             # Read the tool's own verdict from the STRUCTURE it returned, while

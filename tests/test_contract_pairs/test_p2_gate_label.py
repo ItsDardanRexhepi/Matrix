@@ -26,11 +26,17 @@ This test drives each site for real, with a recording gate standing in for the
 consumer, and pins what each one hands over against a golden file:
 
   * for every name the dispatcher can run: the label the ReAct seam, the bridge
-    and the hand-off send — today the name itself, at every site;
+    and the hand-off send — today the name itself, at every site, except the
+    names no request may dispatch (runtime/access_policy.py
+    REFUSED_ON_REQUEST: twelve, the three attestation actions among them),
+    which the bridge, the hand-off and the invoke route refuse before any gate
+    and which run nothing;
   * for every ``_call`` pair in the funnel: the label it sends — the method
     name, after five aliases;
   * for every capability in the catalog: the label the invoke route sends —
-    the capability's ``action``, which is an ACTION_MAP name;
+    the capability's ``action``, which is an ACTION_MAP name — except the
+    ones the catalog marks unavailable, which the route refuses before any
+    gate, whoever asks, and which run nothing;
   * the preflight's one fixed label, which dispatches nothing;
   * where two conventions meet (an action the funnel also reaches), how many
     actions reach the gate under two different labels.
@@ -227,8 +233,16 @@ async def test_every_site_hands_the_gate_the_golden_label(measured):
 
 
 async def test_every_name_reaches_the_gate_from_every_dispatching_site(measured):
+    """Every name reaches the gate, except one no request may dispatch at all:
+    runtime/access_policy.py REFUSED_ON_REQUEST refuses it at the door, before
+    a gate or a dispatcher is consulted, so nothing runs for it. Those, and
+    only those, may be missing — and only at a door that refuses them."""
+    from runtime.access_policy import refused_on_request
+    refused = {n for n in ACTION_MAP if refused_on_request(n)}
     for site, facts in measured["sites"].items():
-        assert facts["reaches_gate"] == measured["names"], (site, facts["exceptions"])
+        missing = {n for n, label in facts["exceptions"].items() if label is None}
+        assert missing <= refused, (site, sorted(missing - refused))
+        assert facts["reaches_gate"] == measured["names"] - len(missing), (site, facts["exceptions"])
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
@@ -256,7 +270,7 @@ NOT_A_SITE = {
         "the wrapper the funnel, the bridge, the invoke route and the preflight call",
     ("runtime/protocols/integration.py", "_init_protocols"):
         "builds the stack's gate; _pre_action hands it the action",
-    ("gateway/server.py", "_start_cleanup_task"):
+    ("gateway/server.py", "_start_security_gate"):
         "builds and initialises the process-wide gate at startup",
     ("runtime/protocols/omega.py", "_phase_gate"):
         "evaluates the framework's own RexhepiGate, not the security gate",
@@ -266,8 +280,9 @@ NOT_A_SITE = {
 SEAM = "runtime/security/__init__.py"
 
 #: The names code reaches the security gate by: the seam's accessor, the
-#: gateway's wrapper around it, and the core's class.
-GATE_NAMES = {"get_morpheus_security", "gate_action", "MorpheusSecurity"}
+#: host's start of the gate (which returns it), the gateway's wrapper around
+#: it, and the core's class.
+GATE_NAMES = {"get_morpheus_security", "start_security_gate", "gate_action", "MorpheusSecurity"}
 #: The private core's package, imported directly rather than through the seam.
 CORE_PACKAGE = "morpheus_security"
 
@@ -337,7 +352,8 @@ def _source_files(root):
 def gate_call_sites(root: Path = ROOT) -> set[tuple[str, str]]:
     """Every function outside tests/ (or ``<module>`` for module level) that
     reaches for the security gate in a form the source shows: it names the
-    seam's accessor, the gateway's wrapper or the core's class — calling it,
+    seam's accessor, the host's start of the gate, the gateway's wrapper or
+    the core's class — calling it,
     passing it, importing it under any alias, reaching it as an attribute or
     naming it in a string — imports the core's package directly (by an
     ``import`` statement or a call that imports a literal name), or touches a

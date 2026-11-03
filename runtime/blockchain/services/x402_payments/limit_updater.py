@@ -25,6 +25,8 @@ import logging
 import time
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 VALID_LIMIT_KEYS = {"per_transaction", "daily", "weekly", "monthly"}
@@ -102,7 +104,7 @@ class LimitUpdater:
                          f"Register the agent owner first.",
             }
 
-        if authorized_by != registered_owner:
+        if not same_caller(authorized_by, registered_owner):
             logger.warning(
                 "Unauthorised limit update attempt: agent=%s by=%s (owner=%s)",
                 agent_id, authorized_by, registered_owner,

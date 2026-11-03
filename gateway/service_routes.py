@@ -36,6 +36,7 @@ from gateway.event_broadcaster import (
     BroadcasterCapacityError,
     EventBroadcaster,
 )
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -785,9 +786,16 @@ class ServiceRoutes:
         except ValueError as exc:
             # Invalid parameter *value* (e.g. an unsupported oracle pair) is an
             # honest client error, not a server fault — surface a 400, never a 500.
+            # A refusal that names a machine-readable `code` (governance's
+            # AlreadyVoted) carries it as `error_code`, so a client can tell
+            # refusals apart without reading the sentence.
             logger.info("Rejected %s.%s: %s", service_name, method_name, exc)
+            body: dict[str, Any] = {"error": str(exc)}
+            code = getattr(exc, "code", None)
+            if isinstance(code, str) and code:
+                body["error_code"] = code
             raise web.HTTPBadRequest(
-                text=json.dumps({"error": str(exc)}),
+                text=json.dumps(body),
                 content_type="application/json",
             )
         except NotImplementedError as exc:
@@ -995,10 +1003,11 @@ class ServiceRoutes:
         # Nothing that declares itself non-public is announced to every
         # subscriber — a followers-only proof share rippled as "shared a proof"
         # with its actor, which tells everyone the share exists. The same
-        # predicate the dispatcher's feed path uses. A refusal of one is still
-        # recorded, without its actor, like a privacy action's.
-        from runtime.blockchain.services.service_dispatcher import declares_non_public
-        if declares_non_public(kwargs, result):
+        # reading the public feed's own ingest and SocialService's feed use
+        # (social/visibility.py). A refusal of one is still recorded, without
+        # its actor, like a privacy action's.
+        from runtime.blockchain.services.social.visibility import is_public
+        if not is_public(kwargs, result):
             if refused:
                 self._record_decline(service_name, method_name, result, actor="")
             return
@@ -1256,7 +1265,7 @@ class ServiceRoutes:
         # body value that contradicts it is refused, not preferred.
         identity = self._sponsorship_identity(request)
         body_sender = str(body.get("sender", "") or "").strip()
-        if identity and body_sender and body_sender.lower() != identity.lower():
+        if identity and body_sender and not same_caller(body_sender, identity):
             logger.warning(
                 "paymaster sign refused: body sender does not match the "
                 "identity bound to this request")
@@ -3334,11 +3343,13 @@ class ServiceRoutes:
         # idiom `_handle_governance_vote` and `_handle_insurance_claim` already
         # use, and passed to the registry as `caller_identity` rather than read
         # from `params`. Bound, not authenticated. The middleware binds a session's identity
-        # when one is presented; without one, the X-Wallet-Address header; and
-        # without that, a body `wallet`, `from`, `sender` or `account` field or
-        # `params.from` — so a self-asserted address DOES become the identity
-        # when the request carries no session and no header. With none of
-        # those, the identity is "" ("unknown"), never a refusal.
+        # when one is presented; without one, and only on the operator key's
+        # request, the X-Wallet-Address header; and without that, a body
+        # `wallet`, `from`, `sender` or `account` field or `params.from` — so an
+        # address the operator's request wrote DOES become the identity when it
+        # carries no session and no header, and the record of who acted says the
+        # operator named it. With none of those, the identity is "" ("unknown"),
+        # never a refusal.
         from gateway.security_gate import (
             current_request_security, gate_action, generic_denial, is_blocked,
         )
@@ -3361,6 +3372,13 @@ class ServiceRoutes:
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
+        # What no caller may have dispatched, the operator key included
+        # (runtime/access_policy.py REFUSED_ON_REQUEST).
+        from runtime.access_policy import refused_on_request
+        refused_for_all = refused_on_request(action_label)
+        if refused_for_all:
+            return web.json_response({"error": "forbidden", "message": refused_for_all},
+                                     status=403)
         # aiohttp's Request is a mapping; the suite's fake request objects are not.
         auth = (request.get("auth") if hasattr(request, "get") else None) or {}
         if auth.get("kind") == "session":
@@ -3372,12 +3390,36 @@ class ServiceRoutes:
                      "message": "This capability is not available to a user session; "
                                 f"its route ({refused}) requires the operator key."},
                     status=403)
+        # What a user session may not have the platform do for it: the
+        # platform's wallet or a platform credential acting on a payee, an
+        # account, an asset, a key, a digest or content the request names
+        # (runtime/access_policy.py REFUSED_TO_A_SESSION; BOUND_TO_THE_CALLER
+        # holds a few to the session's own address). The operator key keeps them.
+        from runtime.access_policy import refused_to_the_caller
+        refused = refused_to_the_caller(str(auth.get("kind") or ""), action_label,
+                                        params=params, identity=authed)
+        if refused:
+            return web.json_response({"error": "forbidden", "message": refused}, status=403)
+        # The catalog's ``available`` is read here, for every caller: a
+        # capability catalogued as not available is not run through this route.
+        # It stays routed, so the caller hears why rather than a 404.
+        if descriptor is not None and descriptor.get("available") is False:
+            return web.json_response(
+                {"status": "unavailable", "error": "unavailable", "capability_id": capability_id,
+                 "message": "This capability is catalogued as not available, and this route "
+                            "does not run it. Nothing was done."},
+                status=503)
         from runtime.access_policy import dispatch_pair
         decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security,
                                      operation=dispatch_pair(action_label))
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)
-        result = await reg.invoke(capability_id, params, caller_identity=authed)
+        # The record of who acted says whether a session established `authed`
+        # or the operator key named it (ServiceDispatcher's `actor_source`).
+        from gateway.security_gate import bound_identity_source
+        result = await reg.invoke(
+            capability_id, params, caller_identity=authed,
+            caller_source="operator" if authed and bound_identity_source() == "operator" else "")
         if result.get("status") != "ok":
             return web.json_response(result, status=400)
         # The registry wraps the dispatcher's payload as {"status": "ok",

@@ -27,6 +27,7 @@ from runtime.react_loop import (  # noqa: F401 — CLIENT_CONTEXT_FENCE re-expor
 )
 from runtime.time.temporal_context import TemporalContext
 from runtime.auth.constant_time import digests_equal
+from runtime.auth.identity import same_caller
 from runtime.auth.session_store import (
     WalletSessionStore,
     NonceStore,
@@ -45,6 +46,7 @@ from runtime.logging import (
 from runtime.monitoring.metrics import MetricsCollector
 from runtime.monitoring.otel import OTelMetricsBridge
 from runtime.monitoring.sentry import initialize_sentry
+from runtime.shipped import shipped
 from runtime.config.validation import (
     ConfigValidationError,
     enforce_env_only_secrets,
@@ -390,8 +392,11 @@ class GatewayServer:
         self._wallet_session_ttl = gw.get("wallet_session_ttl_seconds", 86400)
         self._auth_cleanup_task: asyncio.Task | None = None
         # Morpheus security layer (the process-wide gate) + its durable-state flusher.
+        # The cause is set when the startup of the gate failed (see
+        # _start_security_gate); /ready reads it, the log carries it.
         self._morpheus = None
         self._security_flush_task: asyncio.Task | None = None
+        self._security_gate_cause: str | None = None
         # Security OTP services — phone verification (owner + consumer phone connect).
         #
         # H2's principle applied to THIS branch: a security service that fails to
@@ -408,7 +413,7 @@ class GatewayServer:
         except Exception as exc:
             if is_production_mode():
                 raise RuntimeError(
-                    "MATRIX_ENV=production but the security OTP services failed to "
+                    "MATRIX_ENV says production but the security OTP services failed to "
                     f"initialise: {exc}. Refusing to start rather than running with "
                     "phone and owner verification silently unavailable. Fix the named "
                     "cause, or unset MATRIX_ENV for a non-production run."
@@ -447,7 +452,7 @@ class GatewayServer:
                 "morpheus_security is not installed or failed to load"
             )
             raise RuntimeError(
-                "MATRIX_ENV=production but the security backend is 'noop' — "
+                "MATRIX_ENV says production but the security backend is 'noop' — "
                 f"{cause}, so nothing is enforcing. Refusing to start. Install the "
                 "private security package and fix the named cause, or unset "
                 "MATRIX_ENV for a non-production run."
@@ -473,7 +478,7 @@ class GatewayServer:
         # one hole for another. The example stays empty; production refuses.
         if is_production_mode() and not self.auth_enabled:
             raise RuntimeError(
-                "MATRIX_ENV=production but no gateway API key is configured, so "
+                "MATRIX_ENV says production but no gateway API key is configured, so "
                 "authentication is DISABLED and every protected route would serve "
                 "anonymously. Refusing to start. Set MATRIX_API_KEY (or "
                 "gateway.api_key in the config), or unset MATRIX_ENV for a "
@@ -710,7 +715,7 @@ class GatewayServer:
         real and worse than the diagnosis, because every probe shared the
         always-ok liveness route. This is the missing half.
 
-        Two conditions fail closed:
+        Four conditions fail closed:
 
         * **No model provider reachable.** Every chat path terminates at the
           router; an instance whose providers are all down cannot serve its
@@ -720,6 +725,18 @@ class GatewayServer:
           the platform is running with security in OBSERVE — no enforcement.
           That is a legitimate local/dev state and a NON-STARTER in production,
           so it is only fatal when ``MATRIX_ENV=production``.
+        * **The security gate this host starts is not up.** Its start failed
+          (production refuses to start on that; elsewhere the gateway runs, and
+          no caller is handed a gate), or the loop that writes its state back is
+          missing or has stopped. Fatal everywhere: it is not a posture a
+          deployment chooses.
+        * **Durable execution is not running** (engines Phase 2, only with
+          ``engines.durable.mode`` on, the one mode in which it owns
+          anything): the engine could not be built (its actions are then
+          refused), or the loop that delivers the outbox and closes runs a
+          stopped process left open has died or stopped ticking. With the mode
+          off there is no engine, and in shadow its only effect is rows
+          written, so neither is checked.
 
         THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
         endpoint returned each check with its values — `"backend": "noop"`,
@@ -757,6 +774,25 @@ class GatewayServer:
         if production and backend == "noop":
             failed.append("security_backend")
 
+        # The gate this host starts must have come up, and the loop that writes
+        # its state back must still be running. Without this, a gate that
+        # failed to build or load left /ready at 200 while the gateway served.
+        gate_up = self._security_gate_is_up()
+        if not gate_up:
+            failed.append("security_gate")
+
+        # Engines Phase 2: with engines.durable.mode on, the engine must have
+        # been built and its outbox loop must be running and ticking. With the
+        # mode off there is no engine, and in shadow the engine owns nothing:
+        # its only effect is rows written, so it never takes an instance out of
+        # rotation.
+        durable_engine = getattr(self, "_durable_engine", None)
+        durable_health = None
+        if (durable_engine is not None and durable_engine.mode == "on"
+                and not durable_engine.healthy()):
+            failed.append("durable_outbox_loop")
+            durable_health = durable_engine.health()
+
         ready = not failed
         ref = get_request_id() or "-"
         if not ready:
@@ -764,8 +800,11 @@ class GatewayServer:
             # client can quote.
             logger.error(
                 "Readiness FAILED [ref=%s] checks=%s | providers_reachable=%s "
-                "probed=%s | security_backend=%s production=%s",
+                "probed=%s | security_backend=%s production=%s | security_gate "
+                "up=%s cause=%s%s",
                 ref, failed, providers_up, sorted(model_health), backend, production,
+                gate_up, self._security_gate_cause,
+                f" | durable={durable_health}" if durable_health is not None else "",
             )
 
         return web.json_response(
@@ -905,8 +944,13 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
 
+        # Any spelling of a wallet address /auth/verify accepts, 0X included:
+        # the session it leads to names the wallet in the one spelling either
+        # way (runtime/auth/identity.py). What is not a 20-byte hex address is
+        # refused here rather than signed for and refused at /auth/verify.
+        from runtime.auth.identity import is_wallet_address
         address = str(body.get("address", "")).strip()
-        if not address or not address.startswith("0x") or len(address) != 42:
+        if not is_wallet_address(address):
             return web.json_response({"error": "valid 0x address required"}, status=400)
 
         nonce = generate_nonce()
@@ -962,6 +1006,16 @@ class GatewayServer:
 
         if not verify_signature(address, message, signature):
             return web.json_response({"error": "invalid signature"}, status=401)
+
+        # The signature proves the key behind the address in whatever case the
+        # caller wrote it, so the session names the wallet in the one spelling
+        # (runtime/auth/identity.py) rather than as sent: one wallet is one
+        # caller, not one per spelling. An address that verified and has no
+        # such spelling cannot occur; if it did, no session is issued for it.
+        from runtime.auth.identity import canonical_identity, is_wallet_address
+        if not is_wallet_address(address):
+            return web.json_response({"error": "invalid signature"}, status=401)
+        address = canonical_identity(address)
 
         token = create_session_token()
         now = time.time()
@@ -1336,9 +1390,20 @@ class GatewayServer:
         record it. Subscriptions upsert an entitlement row; the redos
         Consumable is recorded in the transaction ledger (never a tier).
 
-        Idempotent on transactionId: replaying the same signed transaction
-        returns 200 with replay=true and records nothing new. Fail-closed:
-        unconfigured -> 503; any verification failure -> 401 (generic)."""
+        Idempotent on transactionId: the same signed transaction posted again
+        by its holder or with no session returns 200 with replay=true and
+        adds no ledger row; the subscription follows its newest transaction,
+        so an older one moves nothing back, and a transaction carrying
+        Apple's revocationDate ends it, as does a refund or revoke notice the
+        ledger kept from before the subscription had a record (one about a
+        product the gateway did not know yet). A purchase belongs to the first
+        account that verified it: another account's
+        session presenting it (the same bytes, or another transaction of the
+        same subscription) -> 409 ``bound_to_another_account``, with nothing
+        of it written (``EntitlementStore.record_verified``). An account is
+        the session's own subject: an Apple sign-in and the wallet linked to
+        it are two. Fail-closed: unconfigured -> 503; any verification
+        failure -> 401 (generic)."""
         from gateway.iap import (
             IAPError, IAPNotConfigured, check_bundle, check_environment,
             classify_product, transaction_fields, verify_signed_payload,
@@ -1373,7 +1438,11 @@ class GatewayServer:
         user_key = self._iap_user_key(request)
 
         try:
-            fresh = await self._entitlements.record_transaction(
+            # Who holds the purchase is read, and the ledger and the lineage
+            # written, in one database transaction: a signed transaction is a
+            # bearer object, and another account's session presenting it moves
+            # nothing.
+            applied = await self._entitlements.record_verified(
                 transaction_id=tx["transaction_id"],
                 original_transaction_id=tx["original_transaction_id"],
                 product_id=tx["product_id"],
@@ -1382,30 +1451,24 @@ class GatewayServer:
                 quantity=tx["quantity"],
                 purchase_date=tx["purchase_date"],
                 environment=tx["environment"],
+                tier=tier,
+                expires_date=tx["expires_date"],
+                revoked=bool(tx["revocation_date"]),
             )
-            # A REPLAY CHANGES NOTHING. This upserted on every verify, so the
-            # same signed transaction posted again rebound the lineage to the
-            # replayer's session and wrote `active` over an EXPIRED row. On a
-            # replay the only write left is creating a row that is MISSING —
-            # the first attempt recorded the transaction and failed before
-            # the entitlement, and the retry must not strand it.
-            writes_entitlement = product_type == "subscription" and tier and (
-                fresh or await self._entitlements.entitlement(
-                    tx["original_transaction_id"]) is None)
-            if writes_entitlement:
-                await self._entitlements.upsert_entitlement(
-                    original_transaction_id=tx["original_transaction_id"],
-                    product_id=tx["product_id"],
-                    tier=tier,
-                    user_key=user_key,
-                    status="active",
-                    purchase_date=tx["purchase_date"],
-                    expires_date=tx["expires_date"],
-                    environment=tx["environment"],
-                )
         except Exception:
             logger.exception("iap verify: store write failed")
             return web.json_response({"error": "storage failure"}, status=503)
+        if applied["refused"]:
+            logger.warning("iap verify: refused a purchase another account holds "
+                           "(original transaction %s)", tx["original_transaction_id"])
+            return web.json_response({
+                "error": "bound_to_another_account",
+                "message": ("This App Store purchase belongs to another account; "
+                            "it was not applied to this one."),
+                "transactionId": tx["transaction_id"],
+                "originalTransactionId": tx["original_transaction_id"],
+            }, status=409)
+        fresh = applied["fresh"]
 
         return web.json_response({
             "status": "recorded",
@@ -1425,8 +1488,19 @@ class GatewayServer:
         ``signedTransactionInfo`` is verified independently before any store
         write (a valid envelope cannot smuggle an unverified transaction).
         DID_RENEW extends, EXPIRED expires, REFUND flips to refunded (and
-        marks consumable ledger rows), REVOKE revokes. Unverifiable -> 401
-        so a spoofer learns nothing and real Apple retries surface."""
+        marks consumable ledger rows), REVOKE revokes. Every notification's
+        transaction is kept on the ledger. Apple promises no order: a
+        renewal or an expiry about a transaction older than the newest one
+        the subscription holds moves nothing back, an expiry about the
+        newest one or a newer one writes that period expired, and a refund
+        or revoke that arrives before any verify writes the subscription
+        already ended. One about a product the gateway does not know yet
+        ends the subscription if it has a record, and is otherwise kept on
+        the ledger only, so the record a later verify or renewal writes is
+        written ended. REFUND_REVERSED is logged for an operator and the
+        subscription stays ended; the other notification types change
+        nothing on the subscription. Unverifiable -> 401 so a spoofer learns
+        nothing and real Apple retries surface."""
         from gateway.iap import (
             IAPError, IAPNotConfigured, check_bundle, classify_product,
             transaction_fields, verify_signed_payload,
@@ -1484,29 +1558,46 @@ class GatewayServer:
                     environment=tx["environment"],
                 )
             elif notification_type == "EXPIRED":
-                await self._entitlements.set_status(original_id, "expired")
-            elif notification_type in ("REFUND", "REVOKE"):
-                terminal = "refunded" if notification_type == "REFUND" else "revoked"
-                flipped = await self._entitlements.set_status(original_id, terminal)
-                if not flipped and product_type == "subscription" and tier \
-                        and await self._entitlements.entitlement(original_id) is None:
-                    # The refund arrived before the lineage had a row. Dropping
-                    # it (set_status finds nothing) and answering 200 lost the
-                    # refund for good — Apple does not resend an acknowledged
-                    # notification — and the next /verify created the row
-                    # `active`. The row is written in its terminal state, which
-                    # upsert keeps sticky against every later verify.
+                if product_type == "subscription" and tier:
+                    # The notice can name a period no verify has posted yet:
+                    # the subscription takes it as it takes any newer
+                    # transaction, already expired, so posting that period
+                    # afterwards leaves it expired. An older one changes
+                    # nothing.
                     await self._entitlements.upsert_entitlement(
                         original_transaction_id=original_id,
                         product_id=tx["product_id"],
                         tier=tier,
-                        status=terminal,
+                        status="expired",
                         purchase_date=tx["purchase_date"],
                         expires_date=tx["expires_date"],
                         environment=tx["environment"],
                     )
+                # A notice with no purchase date is applied, as before.
+                await self._entitlements.set_status(
+                    original_id, "expired", as_of=tx["purchase_date"] or None)
+            elif notification_type in ("REFUND", "REVOKE"):
+                ended = "refunded" if notification_type == "REFUND" else "revoked"
+                if product_type == "subscription" and tier:
+                    # The notice can reach the gateway before any verify of
+                    # the purchase: the subscription is written already
+                    # ended, so the verify that follows keeps it ended.
+                    await self._entitlements.upsert_entitlement(
+                        original_transaction_id=original_id,
+                        product_id=tx["product_id"],
+                        tier=tier,
+                        status=ended,
+                        purchase_date=tx["purchase_date"],
+                        expires_date=tx["expires_date"],
+                        environment=tx["environment"],
+                    )
+                # A record that exists is ended whatever the product: one the
+                # gateway does not know, in a subscription another product
+                # wrote, writes nothing above. With no record, the ledger mark
+                # below is what the subscription's first record reads.
+                await self._entitlements.set_status(original_id, ended)
                 await self._entitlements.mark_transaction(
-                    tx["transaction_id"], terminal)
+                    tx["transaction_id"], ended)
             elif notification_type == "REFUND_REVERSED":
                 # Deliberately NOT auto-reactivated: terminal states are
                 # sticky (a replayed reversal after a second refund must not
@@ -1753,8 +1844,9 @@ class GatewayServer:
         return self._serve_html("web/terms.html")
 
     def _serve_html(self, path: str) -> web.Response:
-        """Serve a static HTML file."""
-        filepath = Path(path)
+        """Serve a static HTML file: the working folder's, or the copy an
+        installed package carries (runtime/shipped.py)."""
+        filepath = shipped(path)
         if filepath.exists():
             return web.Response(
                 text=filepath.read_text(encoding="utf-8"),
@@ -1766,7 +1858,7 @@ class GatewayServer:
 
     async def handle_extensions_registry(self, request: web.Request) -> web.Response:
         """GET /extensions/registry — serve the component registry JSON."""
-        registry_path = Path("extensions/registry.json")
+        registry_path = shipped("extensions/registry.json")
         if not registry_path.exists():
             return web.json_response({"error": "Registry not found"}, status=404)
         import json as _json
@@ -1776,7 +1868,7 @@ class GatewayServer:
     async def handle_extensions_component(self, request: web.Request) -> web.Response:
         """GET /extensions/registry/{component_id} — single component."""
         component_id = request.match_info.get("component_id", "")
-        registry_path = Path("extensions/registry.json")
+        registry_path = shipped("extensions/registry.json")
         if not registry_path.exists():
             return web.json_response({"error": "Registry not found"}, status=404)
         import json as _json
@@ -1828,6 +1920,13 @@ class GatewayServer:
         platform = str(body.get("platform", "all"))
         if not content:
             return web.json_response({"error": "content is required"}, status=400)
+        from runtime.social.manager import ROUTED_PLATFORMS
+        if platform not in ROUTED_PLATFORMS:
+            # A platform no client routes is sent nowhere. It answered 200 `{}`,
+            # which says nothing failed about a post that went nowhere.
+            return web.json_response(
+                {"error": f"platform must be one of {sorted(ROUTED_PLATFORMS)}"},
+                status=400)
         result = await self.social_manager.post(content=content, platform=platform,
                                                  metadata=body.get("metadata"))
         return web.json_response(result)
@@ -2033,16 +2132,26 @@ class GatewayServer:
         return web.json_response(plugin)
 
     async def handle_marketplace_purchase(self, request: web.Request) -> web.Response:
-        """POST /marketplace/plugins/{plugin_id}/purchase — purchase a plugin."""
+        """POST /marketplace/plugins/{plugin_id}/purchase — answer a purchase
+        request. Installs nothing; a paid plugin answers 501 (not built)."""
         if not self.plugin_marketplace:
             return web.json_response({"error": "Not available"}, status=503)
         plugin_id = request.match_info.get("plugin_id", "")
         wallet = self._caller_identity(request) or "anonymous"
         result = await self.plugin_marketplace.purchase(wallet, plugin_id)
+        if result.get("status") == "not_built":
+            # A paid purchase has no path to completion; 501, not a 200 that
+            # reads as "go finish this elsewhere".
+            return web.json_response(result, status=501)
+        if result.get("status") == "error":
+            # An unknown plugin id is a 404, as GET /marketplace/plugins/{id}
+            # answers it, not a 200 carrying an error.
+            return web.json_response(result, status=404)
         return web.json_response(result)
 
     async def handle_marketplace_submit(self, request: web.Request) -> web.Response:
-        """POST /marketplace/plugins/submit — submit a plugin for review."""
+        """POST /marketplace/plugins/submit — store a pending plugin listing.
+        Nothing reviews, approves or activates it."""
         if not self.plugin_marketplace:
             return web.json_response({"error": "Not available"}, status=503)
         try:
@@ -2127,7 +2236,7 @@ class GatewayServer:
 
     async def handle_badge_widget_js(self, request: web.Request) -> web.Response:
         """GET /badge/widget.js — serve the embeddable badge widget."""
-        filepath = Path("web/badge-widget.js")
+        filepath = shipped("web/badge-widget.js")
         if filepath.exists():
             return web.Response(
                 text=filepath.read_text(encoding="utf-8"),
@@ -2145,7 +2254,8 @@ class GatewayServer:
         return web.json_response({"badges": badges})
 
     async def handle_badge_issue(self, request: web.Request) -> web.Response:
-        """POST /badge/issue — audit the source and issue a badge on a pass. No payment is taken.
+        """POST /badge/issue — issue a badge on the platform's own audit of the
+        submitted source. No payment is involved or checked.
 
         Takes `source_code`, not an `audit_report`: the platform runs the audit
         and issues on its own verdict. See BadgeManager.issue_badge.
@@ -2255,6 +2365,73 @@ class GatewayServer:
             except Exception:
                 logger.exception("Security flush loop iteration failed")
 
+    async def _start_security_gate(self) -> None:
+        """Build the process-wide Morpheus gate WITH the DB handle and load its
+        durable state before serving; then write that state back (bans -> DB /
+        on-chain, breach alerts -> SMS / on-chain) on a short timer.
+
+        All three steps sat in one ``try`` whose ``except`` only logged. A
+        fault in any of them left the gateway serving and reporting ready,
+        with the gate unbuilt or unloaded and no loop writing its state back;
+        the next request then had the seam build the gate for it, without the
+        database or the gate's own settings, and every later caller was handed
+        that one. The OTP services and the App Attest verifier above already
+        refuse a production start when they cannot be built (H2). This is the
+        same rule for the gate itself:
+
+        * the seam builds the gate for the HOST, and hands it out only once it
+          is built and loaded; after a failed start it builds no other
+        * while the gate is not up the HTTP gate refuses every gated action,
+          reads included, and the agent-tool boundary and the chat path's
+          pre-action check refuse every tool call, none of them asking another
+          policy in the gate's place
+        * production refuses to start, naming the cause
+        * elsewhere the gateway runs, /ready reports it not ready, and the
+          cause is in the server log
+        * the write-back loop runs whenever a gate object exists, including one
+          that was built and did not finish loading, so nothing it comes to
+          hold waits for a clean shutdown to be written
+        """
+        from runtime.security import SecurityGateStartFailed, start_security_gate
+
+        self._security_gate_cause = None
+        try:
+            self._morpheus = await start_security_gate(
+                {**self.config, "db": self.react_loop.memory.db}
+            )
+            logger.info("Morpheus security layer initialised (mode=%s)",
+                        getattr(getattr(self._morpheus, "mode", None), "value", "unknown"))
+        except SecurityGateStartFailed as exc:
+            self._morpheus = exc.gate
+            self._security_gate_cause = str(exc)
+            if is_production_mode():
+                raise RuntimeError(
+                    f"MATRIX_ENV says production but {exc}. Refusing to start rather "
+                    "than serving with the security gate replaced by a lesser one "
+                    "or by none. Fix the named cause, or unset MATRIX_ENV for a "
+                    "non-production run."
+                ) from exc
+            logger.error(
+                "Failed to initialise the Morpheus security layer: %s. The gateway "
+                "runs NOT READY: no caller is handed a gate, so every gated "
+                "action is refused, reads included, and so is every agent tool "
+                "call.", exc, exc_info=exc,
+            )
+        if self._morpheus is not None:
+            self._security_flush_task = asyncio.create_task(self._security_flush_loop())
+
+    def _security_gate_is_up(self) -> bool:
+        """True when this host's gate came up, the seam is handing it out, and
+        its write-back loop is alive."""
+        from runtime.security import security_gate_state
+
+        if getattr(self, "_security_gate_cause", None) is not None:
+            return False
+        if security_gate_state() != "up":
+            return False
+        task = getattr(self, "_security_flush_task", None)
+        return self._morpheus is not None and task is not None and not task.done()
+
     def _install_engine_sinks(self) -> None:
         """Engines, Phase 1 — measurement only. Read engines.evidence.mode once
         and, under "shadow", install the two process-wide sinks over the
@@ -2303,6 +2480,61 @@ class GatewayServer:
             dispatch.set_evidence_shadow_sink(None)
         self._engine_sinks = None
 
+    def _install_durable_engine(self) -> None:
+        """Engines, Phase 2 — durable execution (runtime/durable). Read
+        engines.durable.mode once; under "shadow" or "on" build the engine over
+        the platform database, install it process-wide and start its one outbox
+        loop, and say so at boot. Under "off" this installs nothing, starts
+        nothing and logs nothing; the four tables still exist, empty.
+
+        A configured "on" is never silently off: when its engine cannot be
+        built, ``build_engine`` hands back one that refuses every action it
+        would own and is never healthy, and that is what is installed, so the
+        actions are refused and /ready answers 503. A "shadow" engine that
+        cannot be built is left out and the gateway serves as with the mode
+        off, because recording is all shadow does."""
+        self._durable_engine = None
+        from runtime.durable import wiring as durable
+        mode = durable.durable_mode(self.config)
+        if mode == "off":
+            return
+        try:
+            engine = durable.build_engine(self.config, self.react_loop.memory.db)
+        except Exception as exc:
+            if mode != "on":
+                logger.exception("Durable execution (shadow) could not be built; nothing is "
+                                 "recorded and the gateway serves as with the mode off")
+                return
+            logger.exception("Durable execution (mode on) could not be built")
+            engine = durable.DurableEngine.unbuilt(
+                mode=mode, canary=durable.durable_canary(self.config),
+                fault=f"{type(exc).__name__}: {exc}")
+        durable.install(engine)
+        engine.start()
+        self._durable_engine = engine
+        if engine.fault:
+            logger.error("Engines: durable mode=%s could not be built (%s): the actions of its "
+                         "canary (%s) are refused, and /ready answers 503", engine.mode,
+                         engine.fault, ", ".join(engine.canary) or "no stage")
+            return
+        logger.info("Engines: durable mode=%s (canary: %s): run journal, outbox loop and "
+                    "idempotency keys%s", engine.mode, ", ".join(engine.canary) or "no stage",
+                    "; the legacy path still delivers and nothing is refused"
+                    if engine.mode == "shadow" else "")
+
+    async def _remove_durable_engine(self) -> None:
+        """Stop this gateway's engine and take it out again — only its own."""
+        engine = getattr(self, "_durable_engine", None)
+        if engine is None:
+            return
+        from runtime.durable import wiring as durable
+        try:
+            await engine.stop()
+        finally:
+            if durable.current() is engine:
+                durable.install(None)
+            self._durable_engine = None
+
     async def _start_cleanup_task(self, app: web.Application) -> None:
         """Initialise persistence and start background cleanup tasks."""
         # Open the SQLite database and load auth stores from disk.
@@ -2310,21 +2542,11 @@ class GatewayServer:
         await self.wallet_sessions.initialize()
         await self.apple_users.initialize()
         await self.wallet_nonces.initialize()
-        # Security layer — create the process-wide Morpheus gate WITH the DB handle
-        # and load durable bans before serving; then flush its durable state
-        # (bans -> DB/on-chain, breach alerts -> SMS/on-chain) on a short timer.
-        try:
-            from runtime.security import get_morpheus_security  # seam → morpheus_security or no-op
-            self._morpheus = get_morpheus_security(
-                {**self.config, "db": self.react_loop.memory.db}
-            )
-            await self._morpheus.initialize()
-            self._security_flush_task = asyncio.create_task(self._security_flush_loop())
-            logger.info("Morpheus security layer initialised (mode=%s)", self._morpheus.mode.value)
-        except Exception:
-            logger.exception("Failed to initialise the Morpheus security layer")
+        await self._start_security_gate()
         # Engines, Phase 1: the shadow decision/evidence log (off by default).
         self._install_engine_sinks()
+        # Engines, Phase 2: durable execution and its one outbox loop (off by default).
+        self._install_durable_engine()
         # Optional OTel push exporter (no-op unless configured + installed)
         try:
             self.otel_bridge.start()
@@ -2520,7 +2742,10 @@ class GatewayServer:
         if self._app_attest is None or self._security_backend == "noop":
             return web.json_response(
                 {"error": "security backend not installed"}, status=503)
-        identity = str(request.query.get("identity", "")).strip()
+        # The identity the challenge is bound to, in the one spelling the
+        # attestation below derives (runtime/auth/identity.py).
+        from runtime.auth.identity import canonical_identity
+        identity = canonical_identity(str(request.query.get("identity", "")).strip())
         try:
             challenge = await self._app_attest.new_challenge(identity)
         except Exception:
@@ -2551,7 +2776,9 @@ class GatewayServer:
         # Identity that the challenge was bound to: the session's identity when
         # a session is presented, else the caller-written X-Wallet-Address
         # header (mirrors the challenge request's identity), else a body field.
-        identity = (self._caller_identity(request) or str(body.get("identity", ""))).strip()
+        from runtime.auth.identity import canonical_identity
+        identity = canonical_identity(
+            (self._caller_identity(request) or str(body.get("identity", ""))).strip())
         try:
             result = await self._app_attest.verify_attestation(
                 identity=identity,
@@ -2584,6 +2811,12 @@ class GatewayServer:
                     await task
                 except (asyncio.CancelledError, Exception):
                     pass
+        # This host no longer holds the process-wide gate.
+        try:
+            from runtime.security import release_security_gate
+            release_security_gate()
+        except Exception as exc:
+            logger.debug("Security gate release raised during shutdown: %s", exc)
         try:
             bridge = getattr(self, "otel_bridge", None)
             if bridge is not None:
@@ -2592,6 +2825,10 @@ class GatewayServer:
             logger.debug("OTel bridge shutdown raised: %s", exc)
         # Before the database closes: nothing may write through a closed handle.
         self._remove_engine_sinks()
+        try:
+            await self._remove_durable_engine()
+        except Exception as exc:
+            logger.warning("Durable engine stop failed: %s", exc)
         try:
             await self.react_loop.memory.close()
         except Exception as exc:
@@ -2846,15 +3083,17 @@ class GatewayServer:
     def _session_identity(self, request: web.Request) -> str:
         """Identity DERIVED from the presented session: the wallet linked to the
         Apple user when there is one, else the session subject (``0x…`` for
-        SIWE, ``apple:<sub>`` for Apple). Empty without a session."""
+        SIWE, ``apple:<sub>`` for Apple). Empty without a session. A wallet
+        address is in its one spelling (runtime/auth/identity.py)."""
+        from runtime.auth.identity import canonical_identity
         session = self._wallet_session_from_request(request)
         if not session:
             return ""
         subject = str(session.get("address", ""))
         if subject.startswith("apple:"):
             linked = self.apple_users.wallet_for(subject[len("apple:"):])
-            return linked or subject
-        return subject
+            return canonical_identity(linked) or subject
+        return canonical_identity(subject)
 
     def _caller_identity(self, request: web.Request) -> str:
         """Session-derived identity when a session is presented; otherwise the
@@ -2867,7 +3106,8 @@ class GatewayServer:
         if identity:
             return identity
         if self._is_operator(request):
-            return request.headers.get("X-Wallet-Address", "").strip()
+            from runtime.auth.identity import canonical_identity
+            return canonical_identity(request.headers.get("X-Wallet-Address", "").strip())
         return ""
 
     def _caller_kind(self, request: web.Request) -> str:
@@ -2930,8 +3170,13 @@ class GatewayServer:
         """The one spelling of a caller-named session id: stripped, at most 100
         characters. Every leg that checks, stores, or looks up by a session id
         uses this — a check on one spelling and a lookup on another is a check
-        on nothing ("conv-A " passed resume's ownership check for "conv-A")."""
-        return str(raw or "").strip()[:100]
+        on nothing ("conv-A " passed resume's ownership check for "conv-A").
+        An account's own id, ``user:<address>``, names the address in the one
+        spelling a caller is named by (runtime/auth/identity.py), as the
+        gateway derives it and as the database holds it; any other id keeps
+        the case its caller chose."""
+        from runtime.auth.identity import account_conversation_id
+        return account_conversation_id(str(raw or "").strip()[:100])
 
     def _resolve_session_id(self, request: web.Request, requested):
         """``(session_id, error)`` for a chat, push or action request.
@@ -2991,7 +3236,7 @@ class GatewayServer:
         if not claim.owner and identity:
             memory.claim_conversation(session_id, identity)
             claim = memory.conversation_claim(session_id)
-        if claim.owner and claim.owner != identity:  # another account's, or its claim landed first
+        if claim.owner and not same_caller(claim.owner, identity):  # another account's, or its claim landed first
             return claim, "this conversation belongs to another account"
         return claim, None
 
@@ -3007,7 +3252,7 @@ class GatewayServer:
         if self._names_another_account(session_id, identity):
             return "this conversation belongs to another account"
         owner = self.react_loop.memory.conversation_owner(session_id)
-        if owner and owner != identity:
+        if owner and not same_caller(owner, identity):
             return "this conversation belongs to another account"
         return None
 
@@ -3162,7 +3407,8 @@ class GatewayServer:
         (§EE — a verdict may not rest on what the caller writes about itself).
         The body speaks for the user only when the operator key is presented
         (development, where auth is off, counts as operator): an operator
-        integration names the user it acts for. ``app_attest`` is taken from
+        integration names the user it acts for, and ``identity_source`` says
+        which of the two resolved ``wallet_address``. ``app_attest`` is taken from
         the body for everyone because it is not a claim — it is a signed
         assertion the gate verifies.
 
@@ -3175,9 +3421,13 @@ class GatewayServer:
         body = body if isinstance(body, dict) else {}
         operator = self._is_operator(request)
         identity = self._session_identity(request)
+        identity_source = "session" if identity else ""
         apple_id = self._session_apple_id(request)
         if not identity and operator:
-            identity = str(body.get("wallet") or body.get("wallet_address") or "").strip()
+            from runtime.auth.identity import canonical_identity
+            identity = canonical_identity(
+                str(body.get("wallet") or body.get("wallet_address") or "").strip())
+            identity_source = "operator" if identity else ""
             apple_id = apple_id or str(body.get("apple_id") or "").strip()
         context: dict = {
             "session_id": session_id,
@@ -3185,6 +3435,10 @@ class GatewayServer:
             "agent": agent,
             "caller_kind": self._caller_kind(request),
             "wallet_address": identity,
+            # How `wallet_address` was resolved — "session", "operator" (the
+            # body of an operator-key request named it) or "" (none) — so the
+            # record of a tool's action can say which (runtime/react_loop.py).
+            "identity_source": identity_source,
             "apple_id": apple_id,
             "app_attest": body.get("app_attest"),
         }
@@ -3241,7 +3495,8 @@ class GatewayServer:
             # docs/api-reference.md, "Identity"). Derived where a session
             # exists; asserted, and named as such, where one does not.
             stated = self._is_operator(request)
-            identity = self._session_identity(request) or (
+            session_identity = self._session_identity(request)
+            identity = session_identity or (
                 request.headers.get("X-Wallet-Address", "") if stated else "") or ""
             apple_id = self._session_apple_id(request) or (
                 request.headers.get("X-Apple-Id", "") if stated else "") or ""
@@ -3264,10 +3519,14 @@ class GatewayServer:
                 app_attest = body.get("app_attest")
                 if app_attest is None and isinstance(params, dict):
                     app_attest = params.get("app_attest")
+            # Which of the two it was travels with it, so the record of who
+            # acted can say whether a session established the identity or the
+            # operator key named it (ServiceDispatcher's `actor_source`).
             from gateway.security_gate import bind_request_security
             bind_request_security(
                 identity=identity, app_attest=app_attest, apple_id=apple_id,
                 session_id=request.headers.get("X-Session-Id", ""),
+                identity_source="session" if session_identity else "operator",
             )
         return await handler(request)
 
@@ -3443,7 +3702,33 @@ class GatewayServer:
             raise
 
 
+def _run_where_an_install_keeps_its_files() -> None:
+    """From an installed package, move into the folder its files are kept in.
+
+    `matrix setup` writes an install's configuration, its keys and data/ into
+    ~/.matrix, or $MATRIX_HOME (cli/home.py), and `matrix gateway start` starts
+    this process there. The `matrix-gateway` command an install also puts on
+    PATH would otherwise run wherever it is typed, where there is no
+    configuration, or another folder's. Until the setup has written the
+    configuration there is nothing to run, and the folder alone does not say
+    it has: the setup makes the folder before it asks its first question, so
+    a setup quit there leaves it empty. A clone runs in the folder it is
+    started in, as it always has.
+    """
+    from cli.home import checkout, home
+
+    if checkout() is not None:
+        return
+    folder = home()
+    if not (folder / CONFIG_PATH).is_file():
+        print(f"No configuration in {folder}: run `matrix setup` first.", file=sys.stderr)
+        sys.exit(1)
+    os.chdir(folder)
+
+
 def main():
+    _run_where_an_install_keeps_its_files()
+
     # Emit JSON logs by default in production, plain text otherwise.
     json_logs = os.environ.get("MATRIX_LOG_FORMAT", "").strip().lower() == "json" or (
         is_production_mode()

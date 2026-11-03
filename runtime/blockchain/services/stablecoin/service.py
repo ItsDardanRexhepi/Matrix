@@ -86,10 +86,11 @@ class StablecoinService:
         amount: float,
     ) -> dict[str, Any]:
         """
-        Execute a stablecoin transfer with tiered fees.
+        Record a stablecoin transfer on the in-memory ledger, with tiered fees.
 
-        The fee is deducted from the transfer amount and sent to the
-        platform wallet. The recipient receives (amount - fee).
+        The fee is deducted from the amount and credited to the platform
+        wallet's ledger balance, and the recipient's ledger balance is
+        credited with the rest (amount - fee). Nothing is sent on chain.
 
         Args:
             token: Token symbol (e.g. "USDC").
@@ -98,7 +99,7 @@ class StablecoinService:
             amount: Transfer amount in token units.
 
         Returns:
-            Dict with transfer details including fee, net amount, and tx id.
+            Dict with transfer details including fee, net amount, and transfer id.
         """
         token = token.upper()
 

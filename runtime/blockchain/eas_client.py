@@ -2,22 +2,27 @@
 EAS Client — Ethereum Attestation Service integration.
 
 Writes an EAS attestation with the platform key, one transaction per
-call, recording the platform, the action, the agent and a timestamp.
-Attestation gas is paid by the platform. What one records is narrower
-than this module used to claim ("a permanent, verifiable record of what
-was done, by whom, and when"):
+call, recording the platform, the action, the agent and a timestamp. The
+service dispatcher's record of an action it completes does not come here
+directly: it is queued by AttestationService, whose batch calls this
+client when 50 have gathered. The platform pays the gas. An attestation a
+user's tool call asks for (`operation` given) is metered by the sponsorship
+policy like any other platform-signed operation; one the platform writes as
+its own record (`operation` omitted) is listed in
+UNMETERED_PLATFORM_OPERATIONS and is not counted against any user's cap.
 
-  * not every blockchain action — the service dispatcher's record of a
-    state-modifying action it completes does not come here directly: it is
-    queued by AttestationService, whose batch calls this client when 50
-    have gathered in the same process; and ``attest`` answers ``skipped``
-    when EAS is not configured;
+What one records is narrower than this module used to claim ("a permanent,
+verifiable record of what was done, by whom, and when"):
+
+  * not every blockchain action — ``attest`` answers ``skipped`` when EAS is
+    not configured, and the dispatcher's records wait for a batch of 50 in
+    the same process;
   * not permanent — every attestation is created ``revocable`` and
     ``verify`` treats a revocation as not verified;
   * not "what was done" in full — the encoded data is (platform, action,
     agent, timestamp); the ``details`` argument is accepted and NOT encoded;
-  * not "by whom" in the sense of who acted — the agent is a string the
-    caller chose, and the signer is always the platform's key.
+  * not "by whom" in the sense of who acted — the agent is the string its
+    caller passes, and the signer is always the platform's key.
 
 It is a record that THIS PLATFORM said an action happened, when, and which
 agent name it gave.
@@ -28,6 +33,10 @@ import logging
 import time
 from typing import Any
 
+# Bound at module scope: the `except SponsorshipDenied` clause below is
+# evaluated before `except ImportError`, so a function-local import of it would
+# make the clause itself raise whenever a chain library is missing.
+from runtime.blockchain.sponsorship import SponsorshipDenied
 from runtime.blockchain.web3_manager import (
     Web3Manager,
     is_placeholder_value,
@@ -36,6 +45,12 @@ from runtime.blockchain.web3_manager import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The most attestations one batch request may ask the platform to sign. A batch
+# list comes from the caller (the `eas` tool's `attestations`, the
+# `batch_attest` capability's), and every entry is a platform-signed write; an
+# unbounded list was an unbounded number of writes from one request.
+MAX_ATTESTATIONS_PER_BATCH = 20
 
 # EAS contract ABI (attest function)
 EAS_ATTEST_ABI = [
@@ -112,18 +127,32 @@ class EASClient:
         agent: str,
         details: dict,
         recipient: str = "0x0000000000000000000000000000000000000000",
+        *,
+        operation: str | None = None,
+        identity: str | None = None,
     ) -> dict:
         """
-        Create an on-chain attestation for a blockchain action.
-        The platform signs it and pays its gas. It is signed through
-        "eas.attest", an exemption listed in UNMETERED_PLATFORM_OPERATIONS,
-        so no sponsorship allowlist or daily cap is checked.
+        Create an on-chain attestation for a blockchain action, signed with the
+        platform key.
+
+        `operation` decides who the gas is charged against. A model-facing tool
+        that attests because a user asked it to passes its own
+        `<capability>.<method>` name: the signature then goes through
+        `platform_signer`, so the allowlist, the per-identity daily cap and the
+        identity requirement apply, and a refusal raises SponsorshipDenied
+        before anything is signed or sent. With no `operation`, the write is
+        the platform's own record (`eas.attest` in
+        UNMETERED_PLATFORM_OPERATIONS) and is not metered.
 
         Args:
             action: The action being attested (e.g., "deploy_contract")
             agent: Which agent performed the action (e.g., "neo")
             details: Key-value details about the action
             recipient: Ethereum address of the recipient (default: zero address)
+            operation: the metered operation name, keyword-only
+            identity: the caller to meter against, when the write was asked for
+                earlier than it is signed (a queued batch); None resolves the
+                caller bound to the current dispatch
         """
         if not self._is_configured():
             logger.warning(
@@ -140,7 +169,9 @@ class EASClient:
         try:
             from web3 import Web3
             from eth_account import Account
-            from runtime.blockchain.sponsorship import unmetered_platform_signer
+            from runtime.blockchain.sponsorship import (
+                platform_signer, unmetered_platform_signer,
+            )
             from eth_abi import encode
 
             self._validate_config()
@@ -190,8 +221,14 @@ class EASClient:
                 "nonce": self.web3.eth.get_transaction_count(self.platform_wallet),
             })
 
-            # Sign and send — platform pays gas
-            account = unmetered_platform_signer(self.paymaster_key, "eas.attest")
+            # Sign and send with the platform key: metered when a user's tool
+            # call asked for it, listed as the platform's own record otherwise.
+            if operation:
+                account = await platform_signer(self.config, operation,
+                                                key=self.paymaster_key,
+                                                identity=identity)
+            else:
+                account = unmetered_platform_signer(self.paymaster_key, "eas.attest")
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
             # Sent. A wait that runs out from here is not a failed attestation —
@@ -218,6 +255,10 @@ class EASClient:
                 "gas_paid_by": "platform (The Matrix)",
             }
 
+        except SponsorshipDenied:
+            # A refusal is not a failure to report as "failed": the caller (and
+            # the tool dispatcher) renders the policy's reason.
+            raise
         except ImportError as e:
             logger.warning(f"EAS attestation skipped — missing dependency: {e}")
             return {
@@ -292,6 +333,10 @@ class EASClient:
                 "data": "0x" + (attestation[9].hex() if isinstance(attestation[9], (bytes, bytearray))
                                 else str(attestation[9]).replace("0x", "")),
                 "time": attestation[2],
+                # What the attestation SAYS. Existing and unrevoked is not the
+                # same as saying what a caller claims it says; a reader that
+                # checks a statement needs its bytes (agent_identity.verify).
+                "data": "0x" + attestation[9].hex() if isinstance(attestation[9], (bytes, bytearray)) else str(attestation[9]),
                 "network": self.config.get("blockchain", {}).get("network", "base-sepolia"),
             }
         except ValueError as e:

@@ -24,6 +24,11 @@ examples:
   matrix setup                  Run interactive setup
   matrix health                 Quick health check
   matrix version                Show version
+
+where it keeps its files:
+  Run from a clone, the configuration, the data, and the gateway's PID and
+  log stay in the clone. An installed package keeps them in ~/.matrix, or in
+  $MATRIX_HOME when that is set.
 """,
     )
 

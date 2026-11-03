@@ -96,7 +96,8 @@ class VRFProvider:
         if self._web3 is None:
             try:
                 from web3 import Web3
-                self._web3 = Web3(Web3.HTTPProvider(self._rpc_url))
+                from runtime.blockchain.web3_manager import broadcast_safe_http_provider
+                self._web3 = Web3(broadcast_safe_http_provider(self._rpc_url))
             except ImportError:
                 raise RuntimeError(
                     "web3 package is required — run: pip install web3"
