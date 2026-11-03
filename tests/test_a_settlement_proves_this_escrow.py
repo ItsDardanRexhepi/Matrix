@@ -114,6 +114,12 @@ _FORGERIES = [
     ("the deed transfer came from another contract", {"deed_contract": _ROGUE}),
     ("the deed went to someone else", {"transfer_to": _OTHER}),
     ("the deed came from someone else", {"transfer_from": _OTHER}),
+    # The event and the transfer each carry the buyer and the token, and each
+    # copy is compared: an event that names another buyer beside a transfer to
+    # this one, and a transfer of another token beside an event that names
+    # this one, are each another settlement.
+    ("an event naming another buyer", {"buyer": _OTHER}),
+    ("the deed transfer moved another token", {"transfer_token": _TOKEN + 1}),
 ]
 
 

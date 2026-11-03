@@ -48,9 +48,11 @@ class _Account:
         return SimpleNamespace(raw_transaction=b"\x01\x02", hash=SIGNED_HASH)
 
 
-def _manager(send_fault: Exception, sign_fault: Exception | None = None):
+def _manager(send_fault: Exception, sign_fault: Exception | None = None,
+             nonce_fault: Exception | None = None):
     """The parts of a Web3Manager its own send_transaction reads, around a
-    node whose answer to the send raises."""
+    node whose answer to the send raises (or, with *nonce_fault*, whose answer
+    to the nonce lookup before it does)."""
     import asyncio
 
     lock = asyncio.Lock()
@@ -58,7 +60,12 @@ def _manager(send_fault: Exception, sign_fault: Exception | None = None):
     def _send(_raw):
         raise send_fault
 
-    eth = SimpleNamespace(get_transaction_count=lambda _a: 0, gas_price=1,
+    def _nonce(_a):
+        if nonce_fault is not None:
+            raise nonce_fault
+        return 0
+
+    eth = SimpleNamespace(get_transaction_count=_nonce, gas_price=1,
                           estimate_gas=lambda _tx: 21000, send_raw_transaction=_send)
 
     async def _signer(_action=None):
@@ -152,9 +159,22 @@ _SEVEN = [
 ]
 
 
+#: What a node can do to the answer once it has the bytes: time out reading it,
+#: reset the connection, or send back something that does not decode. Each is a
+#: fresh exception per case, because the hand-over is marked on the exception.
+_LOST_ANSWERS = {
+    "timeout": lambda: TimeoutError("read timed out"),
+    "reset": lambda: ConnectionResetError("connection reset by peer"),
+    "undecodable": lambda: ValueError("Non-hexadecimal digit found"),
+}
+
+
+@pytest.mark.parametrize("lost", sorted(_LOST_ANSWERS))
 @pytest.mark.parametrize("method,kwargs", _SEVEN, ids=[m for m, _ in _SEVEN])
-async def test_a_send_whose_answer_was_lost_is_recorded_as_a_broadcast(method, kwargs):
-    svc = _svc(_manager(TimeoutError("read timed out")))
+async def test_a_send_whose_answer_was_lost_is_recorded_as_a_broadcast(method, kwargs, lost):
+    """Decided by the hand-over, not by the kind of fault: every one of these
+    after the node took the bytes is a broadcast."""
+    svc = _svc(_manager(_LOST_ANSWERS[lost]()))
 
     out = await getattr(svc, method)(**kwargs)
 
@@ -176,3 +196,17 @@ async def test_a_fault_before_the_hand_over_is_still_a_refusal(method, kwargs):
     assert svc._web3.sent == 1, f"premise: {method} reached its send: {out}"
     assert out["status"] == "error"
     assert _record_verdict(out) == RECORD_REFUSED
+
+
+@pytest.mark.parametrize("method,kwargs", _SEVEN, ids=[m for m, _ in _SEVEN])
+async def test_a_timeout_before_the_hand_over_is_still_a_refusal(method, kwargs):
+    """SCOPE PIN: a timeout is not by itself a broadcast. One on the nonce
+    lookup, before anything was signed or sent, is an error, as before."""
+    svc = _svc(_manager(AssertionError("not reached"),
+                        nonce_fault=TimeoutError("nonce lookup timed out")))
+
+    out = await getattr(svc, method)(**kwargs)
+
+    assert svc._web3.sent == 1, f"premise: {method} reached its send: {out}"
+    assert out["status"] == "error", out
+    assert _record_verdict(out) == RECORD_REFUSED, out

@@ -103,6 +103,14 @@ def test_sentry_survives_a_non_numeric_traces_rate(_no_sentry_sdk, rate):
     assert initialize_sentry(cfg) in (True, False)
 
 
+@pytest.mark.parametrize("dsn", [True, 42, ["https://k@example.test/1"]])
+def test_sentry_survives_a_dsn_that_is_not_text(dsn):
+    """A read nobody enumerated: a DSN that is not a string fails its own
+    `startswith`. The function's closing guard is what keeps that out of the
+    gateway's constructor, and this is the case that holds it there."""
+    assert initialize_sentry({"monitoring": {"sentry_dsn": dsn}}) is False
+
+
 def test_sentry_a_valid_rate_is_still_passed_through(_no_sentry_sdk):
     # The guard must not become "ignore the operator's setting".
     cfg = {"monitoring": {"sentry_dsn": "https://k@example.test/1",
