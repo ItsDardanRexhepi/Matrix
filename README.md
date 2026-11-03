@@ -293,6 +293,12 @@ check behind it:
   read on the code alone — a comment or the inside of a string literal is
   not code — in one pass, so its cost grows with the source and not with
   its square
+- **An owner check that cannot read the owner refuses.** An NFT
+  fractionalisation is recorded only for the token's on-chain owner, read
+  off the event loop and compared with who asks — on a dispatched action,
+  the identity the dispatcher bound, not an owner the request names. A
+  request that names no one, a token whose owner cannot be read and a
+  caller who is not the owner are each refused before anything is recorded
 - **A skill runs on the server's configuration, not the model's.** The
   agent's chain skills (balance, transaction lookup, gas estimate) read the
   chain this gateway is configured for, through the platform's shared
