@@ -133,6 +133,7 @@ class DecentralizedComputeService:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        resp = None   # set once the provider has answered
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.request(
@@ -150,7 +151,8 @@ class DecentralizedComputeService:
         except Exception as exc:  # noqa: BLE001 — surface, never raise
             logger.warning("compute provider request failed: %s", exc)
             return {"status": "error", "error": str(exc),
-                    "fault": classify_transport_fault(exc)}
+                    "fault": classify_transport_fault(
+                        exc, after_send=resp is not None)}
 
     def _provider_refused(
         self, reply: Any, *, method: str, endpoint: str, provider: str,

@@ -2,8 +2,15 @@
 Agent Identity — on-chain identity for AI agents in The Matrix.
 
 Each agent (Neo, Trinity, Morpheus) can have an on-chain identity
-attested via EAS, enabling verifiable agent actions.
-Gas is paid by the platform within its sponsorship policy.
+attested via EAS. Gas is paid by the platform within its sponsorship policy.
+
+What such an attestation proves is narrower than "verifiable agent
+actions". A registration is the PLATFORM's signature over the strings
+(platform, "agent_registration", agent, timestamp), made only for one of the
+platform's own agents; the ``details`` dict is not encoded at all. It shows
+that this platform registered the agent, not anything the agent did, and
+``attest_action`` is refused. ``verify`` checks an attestation is the
+platform's own registration of the named agent before it says ``verified``.
 """
 
 import json

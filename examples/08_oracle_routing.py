@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 """
 08 — Oracle Gateway: One Entry Point for Several Oracle Types
 
@@ -8,7 +7,8 @@ Calls the oracle gateway through ServiceDispatcher:
   1. get_price: the ETH/USD price feed
   2. get_price: the BTC/USD and LINK/USD feeds
   3. oracle_request: the weather oracle's reading for Fresno, CA
-  4. oracle_request: a Chainlink VRF request for three random words
+  4. oracle_request: a Chainlink VRF request for three random words, which the
+     gateway answers not_implemented: no VRF request is sent
 
 The gateway takes an oracle type (price_feed, weather, sports, random_vrf or
 custom) and that type's parameters (runtime/blockchain/services/oracle_gateway).
@@ -16,13 +16,17 @@ get_price is its price_feed read, which answers with a structured error
 rather than raising when the provider fails. Each step prints what the
 gateway answered, and a step counts as done only when the dispatcher reports
 that it happened (its call_outcome is "success"). A price feed needs an RPC
-the gateway can read, the weather reading a weather provider's API key, and
-VRF a coordinator and subscription; without them the step says what is
-missing.
+the gateway can read and the weather reading a weather provider's API key;
+without them the step says what is missing. VRF is not available: the
+provider builds the coordinator's request and has no signer or funded
+subscription to send it with, and nothing reads a fulfilment back, so the
+request is refused rather than reported as pending.
 
 Usage:
     python examples/08_oracle_routing.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import json

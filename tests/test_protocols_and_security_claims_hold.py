@@ -1,0 +1,93 @@
+"""The protocols, the security seam and the agent boundary, held to the code.
+
+Built true:
+  * Friday's "critical events always notify" — suppression and cooldown were
+    checked first, so a critical event in a suppressed category, or inside a
+    cooldown, was dropped;
+  * the morpheus_triggers guard "pinned so a cleanup cannot silently drop it"
+    — the pinning test named four of its nine entries.
+
+The no-op gate's "logs that it ran" is held elsewhere, the other way: it logs
+nothing per call and its texts say so, measured in both directions by
+tests/test_the_security_layers_are_described_as_they_run.py.
+
+Corrected where the sentence was wrong: "only 'not installed' degrades" (an
+ImportError inside an installed core does too), the deletion intents that
+"nothing can dispatch", the Rexhepi gate that "every operation must pass" and
+its wallet and network checks, Vision's "always follows", the conversational
+initiative's "only", and outcome storage called "append-only JSONL".
+
+Not here: the sentences about the agent boundary — Trinity "never any
+state-changing action" and "only this single, gated channel", "a subverted
+agent cannot reach another agent's tools", "never fails open". Whether the
+boundary is built to what they say or they are corrected to what the code
+keeps is a decision about the architecture, which this file does not take;
+they stay as written and are not read here.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _text(rel: str) -> str:
+    raw = (ROOT / rel).read_text(encoding="utf-8")
+    return re.sub(r"\s+", " ", re.sub(r"\s*#\s*", " ", raw))
+
+
+# ── Friday ─────────────────────────────────────────────────────────────────
+
+async def test_a_critical_event_in_a_suppressed_category_still_notifies():
+    from runtime.protocols.friday import FridayProtocol
+
+    f = FridayProtocol({})
+    f.suppress_category("security")
+    assert await f.should_notify({"category": "security", "urgency": "critical",
+                                  "id": "e1"}) is True
+
+
+async def test_a_critical_event_inside_a_cooldown_still_notifies():
+    from runtime.protocols.friday import FridayProtocol
+
+    f = FridayProtocol({})
+    event = {"category": "wallet", "urgency": "critical", "id": "e2"}
+    assert await f.should_notify(event) is True
+    assert await f.should_notify(event) is True, "a second critical event was held by a cooldown"
+
+
+# ── the guard pin ──────────────────────────────────────────────────────────
+
+def test_the_guard_block_is_pinned_entry_by_entry():
+    pin = (ROOT / "tests" / "test_defi_exotics_removed.py").read_text()
+    loop = re.search(r"for name in \(([^)]*)\):\s*(?:#[^\n]*\s*)*"
+                     r"assert _ACTION_CATEGORY_MAP\.get\(name\) == \"defi\"", pin)
+    assert loop, "the category pin moved; re-read it"
+    pinned = set(re.findall(r'"([a-z_]+)"', loop.group(1)))
+    for name in ("flash_loan", "yield_optimize", "liquidity_provide", "perp_trade",
+                 "options_trade", "vault_deposit", "leverage_position",
+                 "collateral_manage", "synthetic_asset"):
+        assert name in pinned, f"{name} is in the guard block and not pinned"
+
+
+# ── the sentences ──────────────────────────────────────────────────────────
+
+def test_the_seam_sentences_say_what_holds():
+    seam = _text("runtime/security/__init__.py")
+    assert "every action is allowed and logged, nothing is enforced" not in seam
+    assert "Only the first is caught now." not in seam
+
+
+def test_the_protocol_sentences_say_what_the_code_does():
+    assert "(so nothing can dispatch them)" not in _text("runtime/chat/intent_actions.py")
+    assert "Only generate initiative for stressed or uncertain states" not in _text(
+        "runtime/protocols/conversational.py")
+    assert "Append-only JSONL storage" not in _text("runtime/protocols/outcome_schema.py").replace(
+        '"Append-only JSONL storage"', "")
+    gate = _text("runtime/protocols/rexhepi_gate.py")
+    assert "Every platform operation MUST pass through this gate before execution." not in gate
+    assert "Cannot transact without a connected wallet" not in gate.replace(
+        '"cannot transact without a connected wallet"', "")
+    assert "historically always follows with action Y" not in _text("runtime/protocols/vision.py")

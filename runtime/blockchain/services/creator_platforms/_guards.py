@@ -529,7 +529,7 @@ def refusal_response(service_name: str, method: str, exc: PermissionError) -> di
     })
 
 
-def classify_transport_fault(exc: Exception) -> str:
+def classify_transport_fault(exc: Exception, *, after_send: bool = False) -> str:
     """Did the request REACH the third party? 21-E.
 
     21-C collapsed every fault into "dispatched, may be live". Driven, that was
@@ -549,16 +549,35 @@ def classify_transport_fault(exc: Exception) -> str:
     for under-claims, at the same `except Exception`. The exception type was
     never inspected; it carries the answer.
 
+    ONLY SOMETIMES. The type says where a fault was raised only while the
+    request has not been handed over. After that, the same types come from
+    reading the answer: `resp.json()` on a 2xx body that is not valid UTF-8
+    raises UnicodeDecodeError, a ValueError, and a node's malformed reply to
+    `send_raw_transaction` raises one too. Each was classified "not_sent", so
+    the not-sent answer below told the operator "Nothing was published and
+    retrying is safe" about a post the gateway had accepted. Fixing
+    JSONDecodeError alone closed one member of that class. So:
+
+      * ``after_send=True`` is the call site saying a response arrived, or the
+        bytes were handed to the node. Every fault after that is "unknown"
+        unless the gateway's own status says it refused.
+      * An exception `Web3Manager.send_transaction` raised from
+        ``send_raw_transaction`` carries that fact itself
+        (`web3_manager.was_handed_to_node`), for the callers that cannot see
+        which step failed.
+      * A decode fault is "unknown" wherever it is raised: decoding reads
+        bytes that arrived.
+      * Of the connection errors only a REFUSAL proves nothing was written. A
+        reset, a broken pipe and an aborted connection come from a connection
+        that was open, possibly with the request already on it; they are
+        ConnectionError subclasses, and a bare ConnectionError test counted
+        them as never sent.
+
     Returns one of: "not_sent" · "rejected" · "unknown".
     """
     import json as _json
 
-    # Proof it never left: encoding failed before any socket write.
-    if isinstance(exc, (TypeError, ValueError)) and not isinstance(exc, OSError):
-        return "not_sent"
-    if isinstance(exc, _json.JSONDecodeError):
-        # A decode fault happens AFTER a response arrived — the post may exist.
-        return "unknown"
+    from runtime.blockchain.web3_manager import was_handed_to_node
 
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):
@@ -567,11 +586,21 @@ def classify_transport_fault(exc: Exception) -> str:
             return "rejected"
         return "unknown"  # 5xx may have been written before the error
 
+    if after_send or was_handed_to_node(exc):
+        return "unknown"
+    # A decode fault reads bytes that arrived — the post may exist.
+    if isinstance(exc, (_json.JSONDecodeError, UnicodeDecodeError)):
+        return "unknown"
+    # Before the hand-over, a TypeError or ValueError is the request failing
+    # to encode: nothing was written to a socket.
+    if isinstance(exc, (TypeError, ValueError)) and not isinstance(exc, OSError):
+        return "not_sent"
+
     name = type(exc).__name__
     if name in {"ConnectError", "ConnectTimeout", "UnsupportedProtocol",
                 "InvalidURL", "ProxyError"}:
         return "not_sent"
-    if isinstance(exc, (ConnectionRefusedError, ConnectionError)):
+    if isinstance(exc, ConnectionRefusedError):
         return "not_sent"
     return "unknown"
 
@@ -611,7 +640,9 @@ def publish_not_sent(
     """The request never left this process. 21-E.
 
     Reported as a plain failure, NOT as "may be live". Retrying is safe here,
-    and saying otherwise discourages the correct remedy.
+    and saying otherwise discourages the correct remedy. Only for a fault
+    `classify_transport_fault` calls "not_sent", which since the hand-over
+    rule above is only a fault raised before the request was handed over.
     """
     return {
         **base,

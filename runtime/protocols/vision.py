@@ -231,8 +231,10 @@ class VisionProtocol:
             self._sequence_counts = dict(sorted_seqs[: max_sequences // 2])
 
     def _get_proactive_suggestions(self, current_action: str | None) -> list[str]:
-        """If the user just did action X and historically always follows
-        with action Y, suggest Y proactively."""
+        """If the user just did action X and has followed it with action Y at
+        least twice, in at least ``sequence_min_confidence`` of the cases
+        (default 50%), suggest Y proactively. Not "always follows", which this
+        said: a coin flip qualifies."""
         if current_action is None:
             return []
 

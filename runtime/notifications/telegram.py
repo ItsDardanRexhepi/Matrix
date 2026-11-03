@@ -7,15 +7,14 @@ import json
 import logging
 from typing import Any
 
-from runtime.notifications.base import Channel
+from runtime.notifications.base import Channel, is_placeholder
 
 logger = logging.getLogger(__name__)
 
 
-def _placeholder(v: str) -> bool:
-    if not v:
-        return True
-    return v.startswith(("YOUR_", "CHANGE_")) or v == "..."
+#: Kept as a name other modules may already import; the rule itself now lives
+#: in the base class, where every adapter gets it.
+_placeholder = is_placeholder
 
 
 class TelegramChannel(Channel):
@@ -24,9 +23,8 @@ class TelegramChannel(Channel):
     @property
     def available(self) -> bool:
         cfg = self._channel_config
-        token = str(cfg.get("bot_token", "") or "")
         chat_id = str(cfg.get("chat_id", cfg.get("owner_id", "")) or "")
-        return bool(token) and bool(chat_id) and not _placeholder(token)
+        return self._filled("bot_token") and bool(chat_id)
 
     async def send(
         self,

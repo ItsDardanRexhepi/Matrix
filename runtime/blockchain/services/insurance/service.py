@@ -1043,13 +1043,18 @@ class InsuranceService:
         )
         duration_days = int(params.get("duration_days", self._default_duration))
 
+        predicate_refusal = ""
         try:
             enquiry_conditions = build_predicate(policy_type, params)
-        except PredicateError:
+        except PredicateError as exc:
             # An estimate for a predicate we would refuse to underwrite is
             # still worth quoting, at the un-severity-adjusted base — but it
-            # must not silently look like a quote for an issuable policy.
+            # must not silently look like a quote for an issuable policy. It
+            # used to: the only trace was `severity_priced: False`, which an
+            # issuable policy with an unbounded band also carries. The record
+            # now says so in its own field.
             enquiry_conditions = None
+            predicate_refusal = str(exc)
         quote = await self._fee_engine.calculate_premium(
             policy_type, coverage_amount, duration_days,
             params.get("risk_factors", {}),
@@ -1077,6 +1082,9 @@ class InsuranceService:
             # did not say so would be read as a price the platform had agreed.
             "estimate_basis": "caller_supplied_coverage_amount",
             "estimate_is_binding": False,
+            # Whether a policy on these terms could be issued at all.
+            "predicate_issuable": not predicate_refusal,
+            **({"predicate_refusal": predicate_refusal} if predicate_refusal else {}),
             "assessed_at": int(time.time()),
         }
         logger.info(

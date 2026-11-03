@@ -312,6 +312,24 @@ class RealEstateStore:
         )
         return await self.get_escrow(escrow_id)
 
+    async def annotate_escrow(self, escrow_id: str, *,
+                              attestation_refs: dict | None = None,
+                              tx_hashes: dict | None = None) -> dict | None:
+        """Merge refs/hashes into an escrow WITHOUT a state change — no history
+        entry, state untouched. Attaching a reference is not a transition."""
+        await self._ensure()
+        cur = await self.get_escrow(escrow_id)
+        if cur is None:
+            return None
+        refs = {**cur["attestation_refs"], **(attestation_refs or {})}
+        hashes = {**cur["tx_hashes"], **(tx_hashes or {})}
+        await self._db.execute(
+            "UPDATE re_escrows SET attestation_refs_json = ?, tx_hashes_json = ?,"
+            " updated_at = ? WHERE id = ?",
+            (json.dumps(refs), json.dumps(hashes), time.time(), escrow_id),
+        )
+        return await self.get_escrow(escrow_id)
+
     # ── Buyer verifications (supersession retained) ─────────────────────
 
     async def add_verification(self, *, buyer_wallet: str, method: str,

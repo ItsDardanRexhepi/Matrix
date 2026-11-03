@@ -470,26 +470,27 @@ class BadgeManager:
 
     async def _next_badge_id(self, year: int) -> str:
         """Atomically increment the sequence counter for *year* and
-        return the next badge ID."""
-        row = await self.db.fetchone(
-            "SELECT seq FROM badge_sequence WHERE year = ?",
-            (year,),
-        )
-        if row:
-            new_seq = row["seq"] + 1
-            await self.db.execute(
-                "UPDATE badge_sequence SET seq = ? WHERE year = ?",
-                (new_seq, year),
-                commit=True,
-            )
-        else:
-            new_seq = 1
-            await self.db.execute(
-                "INSERT INTO badge_sequence (year, seq) VALUES (?, ?)",
-                (year, new_seq),
-                commit=True,
-            )
+        return the next badge ID.
 
+        Atomic now, and it was not: this read ``seq`` with one awaited call and
+        wrote ``seq + 1`` with another, and the database's write lock is taken
+        per statement, so two issuances queued on that lock both read N and
+        both wrote N+1 — two badges named GLASSWING-YYYY-NNNN. The increment
+        and the read-back are one transaction under the write lock
+        (``Database.run_in_transaction``), with nothing awaited inside it.
+        """
+        def _increment(conn):
+            conn.execute(
+                "INSERT INTO badge_sequence (year, seq) VALUES (?, 1) "
+                "ON CONFLICT(year) DO UPDATE SET seq = seq + 1",
+                (year,),
+            )
+            row = conn.execute(
+                "SELECT seq FROM badge_sequence WHERE year = ?", (year,)
+            ).fetchone()
+            return int(row[0])
+
+        new_seq = await self.db.run_in_transaction(_increment)
         return f"GLASSWING-{year}-{new_seq:04d}"
 
     @staticmethod

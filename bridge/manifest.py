@@ -204,8 +204,16 @@ class ManifestManager:
             logger.warning("No entry for %s", component_name)
             return None
 
-        # Guard: cannot deploy without approval
-        if status == "deployed" and entry.dardan_approval != "approved":
+        # Guard: cannot deploy without approval. "Deployed" is two statuses in
+        # this module — get_summary counts "deployed" AND "attested" — and the
+        # guard used to key on the first only, so recording "attested" put an
+        # unapproved component in the deployed count. The status is also the
+        # caller's string, so anything outside the documented vocabulary is
+        # refused rather than written.
+        if status not in ("deployed", "failed", "attested", "pending"):
+            logger.error("Cannot set %s to unknown status %r", component_name, status)
+            return None
+        if status in ("deployed", "attested") and entry.dardan_approval != "approved":
             logger.error(
                 "Cannot mark %s as deployed: approval status is %s",
                 component_name, entry.dardan_approval,

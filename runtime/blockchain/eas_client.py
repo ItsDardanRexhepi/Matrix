@@ -10,6 +10,22 @@ user's tool call asks for (`operation` given) is metered by the sponsorship
 policy like any other platform-signed operation; one the platform writes as
 its own record (`operation` omitted) is listed in
 UNMETERED_PLATFORM_OPERATIONS and is not counted against any user's cap.
+
+What one records is narrower than this module used to claim ("a permanent,
+verifiable record of what was done, by whom, and when"):
+
+  * not every blockchain action — ``attest`` answers ``skipped`` when EAS is
+    not configured, and the dispatcher's records wait for a batch of 50 in
+    the same process;
+  * not permanent — every attestation is created ``revocable`` and
+    ``verify`` treats a revocation as not verified;
+  * not "what was done" in full — the encoded data is (platform, action,
+    agent, timestamp); the ``details`` argument is accepted and NOT encoded;
+  * not "by whom" in the sense of who acted — the agent is the string its
+    caller passes, and the signer is always the platform's key.
+
+It is a record that THIS PLATFORM said an action happened, when, and which
+agent name it gave.
 """
 
 import json
@@ -83,10 +99,20 @@ class EASClient:
         self._manager = Web3Manager.get_shared(config)
 
     def _is_configured(self) -> bool:
-        """Return True only if EAS is fully configured and the manager is online."""
+        """Return True only if EAS is fully configured and the manager was
+        online when it was built.
+
+        "Fully configured" includes ``platform_wallet``: ``attest`` sends from
+        it and ``_validate_config`` requires it, and this check used to leave it
+        out, so a config without it passed here and failed inside the send.
+        "Online" is ``Web3Manager.available``, which is decided once, when the
+        shared manager connects; an RPC that goes down later is found by the
+        send, not here.
+        """
         if not self._manager.available:
             return False
-        for val in (self.eas_contract, self.eas_schema, self.paymaster_key):
+        for val in (self.eas_contract, self.eas_schema, self.paymaster_key,
+                    self.platform_wallet):
             if is_placeholder_value(val):
                 return False
         return True
@@ -302,6 +328,10 @@ class EASClient:
                 "schema": "0x" + attestation[1].hex() if isinstance(attestation[1], bytes) else str(attestation[1]),
                 "attester": attestation[7],
                 "recipient": attestation[6],
+                # The encoded payload, so a caller can check WHAT was attested
+                # and not only that something was (agent_identity does).
+                "data": "0x" + (attestation[9].hex() if isinstance(attestation[9], (bytes, bytearray))
+                                else str(attestation[9]).replace("0x", "")),
                 "time": attestation[2],
                 # What the attestation SAYS. Existing and unrevoked is not the
                 # same as saying what a caller claims it says; a reader that

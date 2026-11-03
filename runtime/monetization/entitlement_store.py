@@ -52,7 +52,11 @@ own notices gave it, so one an operator reinstated with
 ``allow_terminal_override`` stays as the operator left it.
 (A rare REFUND_REVERSED is deliberately NOT auto-reactivated — the ASN
 handler logs it for manual review; fail-closed means toward less
-entitlement, never more.)
+entitlement, never more.) That includes a refund or revocation that arrives
+BEFORE the lineage has a row: the webhook writes the row in its terminal
+state, so a later /verify of the same lineage cannot create it ``active``.
+It used to drop that notification (``set_status`` found no row) and answer
+Apple 200, so the refund was lost for good and the next verify entitled.
 
 This is the server-side entitlement PRIMITIVE — a queryable fact table.
 Nothing here gates existing routes; adopting it as a gate is a later,

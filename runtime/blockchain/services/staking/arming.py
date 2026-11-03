@@ -6,9 +6,10 @@ identically whether or not the staking contract existed. That is not a policy,
 it is an accident of where someone happened to add a gate.
 
 And the accident was LOAD-BEARING. ``stake`` is the sole writer of
-``StakingService._positions``, so gating ``stake`` is the *only* reason
-``unstake``, ``claim_rewards`` and ``get_position`` are inert today — they are
-not safe, they are merely starved. Replacing the accident with a control is the
+``StakingService._positions``, so gating ``stake`` WAS the only reason
+``unstake``, ``claim_rewards`` and ``get_position`` were inert — they were not
+safe, they were merely starved. (Past tense since NEW-94: each of the three now
+carries the domain gate itself; this paragraph read "today".) Replacing the accident with a control is the
 whole point: the domain must be inert because something says so, not because a
 dictionary happens to be empty.
 

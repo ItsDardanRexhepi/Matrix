@@ -34,6 +34,7 @@ SERVICES = ROOT / "runtime" / "blockchain" / "services"
 #: where the map has no row for it).
 _ROW_OF = {
     "agent_identity/service.py::AgentIdentityService.trade_model_access": "Trade AI Model",
+    "dex/service.py::DEXService.swap": "Token Swap",
     "agent_identity/service.py::AgentIdentityService.sell_training_data": "Sell Training Data",
     "gaming/service.py::GamingService.enter_tournament": "Tournament Enter",
     "gaming/service.py::GamingService.trade_item": "Game Item Trade",

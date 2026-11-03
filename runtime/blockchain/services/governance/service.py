@@ -2,8 +2,10 @@
 GovernanceService — platform governance and voting for the Matrix platform.
 
 IMPORTANT: This is PLATFORM governance only. Bilateral disputes must
-use Component 30 (Dispute Resolution). Attempts to file bilateral
-disputes as governance proposals are detected and rejected.
+use Component 30 (Dispute Resolution). A proposal whose title and
+description contain two or more dispute keywords is rejected as a bilateral
+dispute; one phrased with fewer is not detected. It is a keyword heuristic,
+not a classifier, and it catches the obvious cases only.
 """
 
 from __future__ import annotations
@@ -202,9 +204,11 @@ class GovernanceService:
         #
         # Recording an empty snapshot is worse than recording none: it makes
         # the service look protected. With no balance source there is nothing
-        # honest to snapshot, so nothing is stored, and `check_vote` now
-        # REFUSES a weight-dependent vote whose snapshot is absent rather than
-        # silently skipping (fail-closed).
+        # honest to snapshot, so nothing is stored, and a weight-dependent
+        # vote is REFUSED rather than silently counted (fail-closed). The
+        # refusal lives in `vote()`, keyed on the balance SOURCE being absent
+        # — this used to credit `check_vote` with it, which has no such
+        # branch.
         if self._balance_source is not None:                       # pragma: no cover
             balances = await self._balance_source.balances_at_now()
             self._anti_manipulation.take_snapshot(proposal_id, balances)
@@ -269,7 +273,11 @@ class GovernanceService:
         # 1.0 for an input of 999).
         #
         # FAIL-CLOSED: the refusal is on the ABSENCE of a source, so wiring one
-        # lifts it and nothing else has to be remembered.
+        # lifts it and nothing else has to be remembered — because with a
+        # source wired the weight is the voter's SNAPSHOT balance, not the
+        # `weight` argument (below). That used to be false: the caller's
+        # weight reached the model, and a voter absent from the snapshot kept
+        # it.
         model_name = proposal["voting_model"]
         if model_name in _WEIGHT_DEPENDENT_MODELS and self._balance_source is None:
             # NotImplementedError, NOT ValueError, and the type is a
@@ -288,6 +296,10 @@ class GovernanceService:
                 "'one_person_one_vote', or wire a balance source. "
                 "(Cluster A step 1)"
             )
+
+        # The voting power of a weight-dependent vote is the snapshot balance.
+        if model_name in _WEIGHT_DEPENDENT_MODELS:
+            weight = self._anti_manipulation.get_snapshot_balance(proposal_id, voter)
 
         # Anti-manipulation check
         manipulation_result = await self._anti_manipulation.check_vote(
@@ -455,10 +467,13 @@ class GovernanceService:
 
         16-T. THIS METHOD WRITES. The auto-expiry below transitions proposals
         from ``active`` to ``expired`` — a governance state change performed by
-        a method named ``list_``. It is kept, because lazy expiry is the only
-        thing moving proposals out of ``active`` and removing it would leave
-        them votable past their deadline; but it is named here rather than left
-        for a reader to find, because "a read that mutates" is the
+        a method named ``list_``. It is kept so a listing shows a proposal past
+        its deadline as ``expired`` rather than ``active`` — not, as this used
+        to say, because it is the only thing moving proposals out of
+        ``active``: ``finalize`` does that too, and ``vote``, ``get_proposal``
+        and ``list_proposals_detailed`` each apply the same deadline check, so
+        removing it would not leave proposals votable. It is named here rather
+        than left for a reader to find, because "a read that mutates" is the
         label-vs-behaviour class this census has been counting.
 
         Unlike `p2p_lending.list_offers`, this one does not alias: each entry is
@@ -699,10 +714,14 @@ class GovernanceService:
 
         AND NOTHING LOCAL COULD SUBSTANTIATE IT. Snapshot is an EXTERNAL
         off-chain voting system; a vote is cast by signing a message and
-        submitting it to a Snapshot hub. This platform has no hub client, no
-        signer for it, and no space configuration — the gateway route already
-        refuses `space` as unbuilt (NEW-89). So unlike a proposal or a
-        membership, there is no local artifact that a record here could BE.
+        submitting it to a Snapshot hub. THIS SERVICE has no hub client, no
+        signer and no space configuration. The platform has one:
+        advanced_governance relays a vote envelope the voter already signed to
+        a configured hub and space — this used to say none of that exists
+        anywhere in the platform. What cannot exist here is the signature:
+        the voter's key signs, and this service holds no keys. So unlike a
+        proposal or a membership, there is no local artifact that a record
+        here could BE.
 
         LIFTING CONDITION — all of: a Snapshot hub endpoint; a signer that can
         produce the voter's EIP-712 signature (which this service cannot, as it
@@ -710,10 +729,13 @@ class GovernanceService:
         acknowledgement rather than asserted.
         """
         raise NotImplementedError(
-            "Snapshot voting is unavailable: casting an off-chain Snapshot "
-            "vote requires a Snapshot hub client and the voter's signature, "
-            "neither of which exists in this platform. A record here would "
-            "report a vote that was never submitted anywhere. (Cluster B)"
+            "Snapshot voting is unavailable here: an off-chain Snapshot vote "
+            "is the voter's own signed message submitted to a Snapshot hub, "
+            "and this service can produce neither the signature nor a hub "
+            "submission. Sign the vote in your wallet and relay it through "
+            "advanced governance's Snapshot hub relay instead. A record here "
+            "would report a vote that was never submitted anywhere. "
+            "(Cluster B)"
         )
 
     async def parameter_change(

@@ -1,7 +1,12 @@
 """Dependency Checker - Component 29.
 
-Checks across all platform components for data that cannot be deleted.
-Returns human-readable explanations of what blocks deletion and why.
+Lists what WOULD block a deletion, by category, with human-readable
+explanations. It does not check across the platform's components, which this
+used to say: no component is queried. The only dependencies it knows are the
+ones declared to it through ``set_user_dependencies``, which nothing in the
+platform calls, so for a real user every category is empty. An empty result is
+therefore not a clearance, and the result says so (``components_queried`` is
+empty and ``can_proceed`` is False).
 """
 
 from __future__ import annotations
@@ -66,11 +71,12 @@ DEPENDENCY_CATEGORIES = {
 
 
 class DependencyChecker:
-    """Checks platform-wide dependencies that block data deletion.
+    """Reports the dependencies declared to it that would block a deletion.
 
-    Queries across all relevant components to find data that cannot
-    be deleted due to active obligations, legal requirements, or
-    operational constraints.
+    It queries no component (see the module docstring): the categories name
+    where such data would live — disputes, loans, settlements, subscriptions,
+    legal holds, escrow — and each is empty unless ``set_user_dependencies``
+    filled it in.
     """
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
@@ -80,9 +86,10 @@ class DependencyChecker:
         logger.info("DependencyChecker initialised")
 
     def set_user_dependencies(self, user: str, category: str, items: list[dict]) -> None:
-        """Inject dependency data for a user.
+        """Declare dependency data for a user.
 
-        In production, this queries each component's service directly.
+        This is the checker's only source. No component is queried, in
+        production or anywhere else, and nothing in the platform calls this.
 
         Args:
             user: User's wallet address.
@@ -94,9 +101,10 @@ class DependencyChecker:
         self._user_dependencies.setdefault(user, {})[category] = items
 
     async def check_structural_dependencies(self, user: str) -> dict:
-        """Check all structural dependencies for a user.
+        """Report the declared structural dependencies for a user.
 
-        Queries each component to find active obligations.
+        No component is queried, so ``can_proceed`` is always False: an empty
+        list here means nothing was declared, not that nothing blocks.
 
         Args:
             user: User's wallet address.
@@ -128,9 +136,15 @@ class DependencyChecker:
 
         return {
             "user": user,
-            "total_categories_checked": len(DEPENDENCY_CATEGORIES),
+            "total_categories_listed": len(DEPENDENCY_CATEGORIES),
             "total_blocking_categories": total_blocking,
-            "can_proceed": total_blocking == 0,
+            "components_queried": [],
+            "can_proceed": False,
+            "can_proceed_reason": (
+                "No platform component was queried. The categories list only "
+                "what was declared to this checker, so an empty category is "
+                "not a finding that nothing blocks deletion."
+            ),
             "categories": results,
             "checked_at": time.time(),
         }
@@ -192,7 +206,8 @@ class DependencyChecker:
             "legal_holds": [
                 "Legal holds can only be lifted by authorised legal personnel.",
                 "Contact platform legal support for information about the hold.",
-                "Deletion will be processed automatically once the hold is lifted.",
+                ("Lifting the hold does not start a deletion: data deletion "
+                 "is not available on this platform yet."),
             ],
             "active_escrow": [
                 "Wait for escrow conditions to be met and funds released.",

@@ -116,8 +116,11 @@ class BatchProcessor:
         NEW-51: added so `AttestationService.attest` can state the truth about
         submission rather than implying one. This distinguishes the two drain
         paths: the SIZE-THRESHOLD flush in `add()` works unconditionally, but
-        the INTERVAL flush requires `start()` — which currently has no caller
-        anywhere in the repo, so this returns False in production.
+        the INTERVAL flush requires `start()`. `start()`'s only caller is
+        `AttestationService.start()`, and THAT has no caller in the repo (six
+        places construct an AttestationService; none starts it), so this
+        returns False in production. This used to say `start()` itself had
+        no caller, which one grep contradicts.
 
         Checks the task as well as the flag: `_running` is set to True by
         `start()` before the task is created, so the flag alone would report a

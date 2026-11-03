@@ -123,9 +123,17 @@ class DeFiService:
             # raised "Collateral ratio 0.20 is below minimum 1.50" and left
             # `_balances["0xZ"] == {"ETH": 0.1}`.
             #
-            # Two writes, one of which can fail, in an order where the survivor
-            # is the one that moves value. Ordered so the FALLIBLE step runs
-            # FIRST and the deposit is reached only once the loan is certain.
+            # Two writes, BOTH of which can fail, in an order where the survivor
+            # is the one that moves value. This said "one of which can fail":
+            # the deposit refuses any token outside the collateral table, and
+            # the loan manager never checked it — so a token the oracle can
+            # price and the table omits recorded an ACTIVE loan with no
+            # collateral behind it, then raised. The deposit's refusal is now
+            # asked FIRST, before either write, so the loan is created only
+            # when the deposit that follows it cannot refuse on the token.
+            if not self._collateral_manager.accepts(collateral_token):
+                raise ValueError(
+                    f"Token '{collateral_token}' is not accepted as collateral.")
             loan = await self._loan_manager.create_loan(
                 borrower=borrower,
                 collateral_token=collateral_token,
@@ -193,8 +201,15 @@ class DeFiService:
             # quantities and the ledgers drifted apart on any partial repayment
             # made after interest accrued. `remaining_principal` is the loan's
             # own figure; using it means the two can no longer disagree.
+            # AND ACROSS LOANS. `remaining_principal` is ONE loan's figure, and
+            # the position is per borrower and token, while create_loan's
+            # record_borrow ADDS each loan to it. With two loans in one token,
+            # repaying one set the position to that loan's remainder and
+            # erased the other. The position is the principal outstanding on
+            # every active loan of this borrower in this token.
             self._collateral_manager.set_borrow_position(
-                borrower, borrow_token, result["remaining_principal"]
+                borrower, borrow_token,
+                self._loan_manager.outstanding_principal(borrower, borrow_token),
             )
 
             # Update reputation

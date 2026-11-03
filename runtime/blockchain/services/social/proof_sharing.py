@@ -11,7 +11,7 @@ import logging
 import secrets
 import time
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,26 @@ class ProofSharing:
 
     Users can share proofs with different visibility levels:
     - public: visible to everyone
-    - followers: visible only to followers
-    - specific_addresses: visible only to specified wallet addresses
+    - followers: visible only to the owner's followers (and the owner)
+    - specific_addresses: visible only to specified wallet addresses (and the
+      owner)
+
+    "Only to followers" is decided by ``is_follower(owner, viewer)``, which
+    SocialService supplies from its follow graph. A followers share used to be
+    returned to ANY caller who named a viewer — the check was `if viewer:`,
+    beside a comment saying the follower list would be checked "in
+    production". With no resolver supplied the answer is the owner alone,
+    because a guess about who follows whom is not a privacy control.
     """
 
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        is_follower: Callable[[str, str], bool] | None = None,
+    ) -> None:
         self.config = config or {}
+        self._is_follower = is_follower
         self._shares: dict[str, dict] = {}
         self._owner_index: dict[str, list[str]] = {}  # address -> share_ids
         logger.info("ProofSharing initialised")
@@ -118,9 +132,7 @@ class ProofSharing:
             if share["visibility"] == "public":
                 results.append(share)
             elif share["visibility"] == "followers":
-                # In production, check follower list from SocialService
-                # For now, allow if viewer is provided
-                if viewer:
+                if viewer and (viewer == address or self._follows(address, viewer)):
                     results.append(share)
             elif share["visibility"] == "specific_addresses":
                 if viewer and viewer in share["allowed_addresses"]:
@@ -133,11 +145,26 @@ class ProofSharing:
 
         return results
 
-    async def verify_shared_proof(self, share_id: str) -> dict:
-        """Verify the authenticity of a shared proof.
+    def _follows(self, owner: str, viewer: str) -> bool:
+        """Does *viewer* follow *owner*? No resolver, or a resolver that
+        fails, is a no: the share stays with its owner."""
+        if self._is_follower is None:
+            return False
+        try:
+            return bool(self._is_follower(owner, viewer))
+        except Exception:  # noqa: BLE001 — a failed lookup is not a yes
+            logger.warning("follower lookup failed for owner=%s", owner)
+            return False
 
-        Checks that the proof's attestation_uid and verification hash are valid.
-        In production, verifies against Component 8 (attestation service).
+    async def verify_shared_proof(self, share_id: str) -> dict:
+        """Check that a share record is complete.
+
+        What is checked is that the record carries an attestation uid, a
+        verification hash and an owner. The attestation is NOT looked up — no
+        attestation service or chain is consulted here — so ``verified`` means
+        "the record is well-formed", and the note says so. It used to say
+        "Attestation verified against on-chain record" on a check that read
+        three fields of a local dict.
 
         Args:
             share_id: The share to verify.
@@ -175,10 +202,13 @@ class ProofSharing:
             },
             "verified_at": now,
             "note": (
-                "Attestation verified against on-chain record"
+                "Share record is complete (attestation uid, verification "
+                "hash and owner present). The attestation itself was not "
+                "checked against any chain."
                 if is_valid
                 else "Verification failed: missing required proof data"
             ),
+            "attestation_checked_on_chain": False,
         }
 
         logger.info("Proof %s verification: %s", share_id, "PASS" if is_valid else "FAIL")

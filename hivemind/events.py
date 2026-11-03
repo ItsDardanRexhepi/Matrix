@@ -99,7 +99,9 @@ class EventBus:
     Supports:
     - Typed event subscriptions (subscribe to specific EventTypes)
     - Broadcast events (no target_agent — all subscribers see it)
-    - Directed events (only handlers for target_agent + type fire)
+    - Directed events (handlers subscribed for target_agent + type fire, and
+      so do the type's global handlers — a global subscription sees every
+      event of its type, directed or not; see ``subscribe``)
     - Event log with persistence for audit trails
     - Async handler execution
     """

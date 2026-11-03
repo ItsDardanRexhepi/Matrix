@@ -307,6 +307,23 @@ def test_every_reachable_template_compiles_after_fee_injection(forge_build):
     assert not failed, f"fee-injected templates that do not compile: {sorted(failed)}\n{failed}"
 
 
+async def test_a_fee_injected_draft_with_no_owner_compiles(forge_build):
+    """A draft generated from a declaration has no owner, so the fee setters
+    are guarded by an onlyPlatformFeeAdmin modifier the fee logic adds. It was
+    added before the first `function` in the file, which is the file-level
+    IMatrixFeeToken interface's, so the modifier landed in the interface and
+    the draft did not compile (Error 7576, undeclared platformFeeAdmin) while
+    convert() returned it. The README's convert example is such a draft."""
+    from tests.test_the_readme_convert_example_drafts_well_formed import _example_source
+
+    pseudocode = _example_source()
+    result = await ContractConversionService(config=FEE_CONFIG).convert(pseudocode, "pseudocode")
+    source = result["generated_source"]
+    assert "onlyPlatformFeeAdmin" in source, "precondition: the draft has no owner of its own"
+    abi, err = forge_build(result["contract_name"], source)
+    assert abi is not None, f"the fee-injected draft does not compile:\n{err}"
+
+
 @pytest.mark.parametrize("pseudocode,template", [
     (ARTIST_PSEUDOCODE, "erc721"),
     (MUSIC_PSEUDOCODE, "erc1155"),

@@ -132,14 +132,22 @@ def test_the_readme_example_draft_compiles_where_a_solc_is_installed():
     assert any(name.endswith(":Rental") for name in compiled), compiled.keys()
 
 
-def test_the_fee_row_names_the_drafts_the_fee_setters_keep_from_compiling():
+def test_the_fee_row_says_who_may_change_the_fee_in_each_draft():
+    """The fee setters were guarded by an onlyOwner the fee logic did not
+    define, so the README example's draft, which has no owner, did not compile
+    with the fee in it. A draft with no owner now gets an onlyPlatformFeeAdmin
+    modifier that admits its deployer, and the templates keep their own
+    onlyOwner; the Fees row says which."""
     from runtime.blockchain.services.contract_conversion import artist_classifier
     from runtime.blockchain.services.contract_conversion.templates import TEMPLATES
 
     draft = _draft(_example_source(), FEE_CONFIG)
-    assert re.search(r"\bonlyOwner\b", draft), "the fee setters no longer use onlyOwner"
     assert not re.search(r"\bmodifier\s+onlyOwner\b|\bOwnable\b", draft), (
-        "the README example's draft now defines or inherits onlyOwner")
+        "the README example's draft now defines or inherits onlyOwner; re-derive this check")
+    assert not re.search(r"\bonlyOwner\b", draft), "the fee setters use an onlyOwner the draft lacks"
+    assert re.search(r"\bmodifier\s+onlyPlatformFeeAdmin\b", draft), draft
+    assert re.search(r"\bplatformFeeAdmin\s*=\s*msg\.sender\b", draft), (
+        "the fee admin is not recorded in the constructor")
     for name in sorted(set(artist_classifier._TEMPLATE_MAP.values()) | {"erc721"}):
         assert re.search(r"\bcontract\s+\{\{NAME\}\}\s+is\b[^{]*\bOwnable\b", TEMPLATES[name]), (
             f"the {name} template convert() can return does not inherit Ownable")
@@ -147,7 +155,7 @@ def test_the_fee_row_names_the_drafts_the_fee_setters_keep_from_compiling():
     rows = [ln for ln in DOCS.read_text(encoding="utf-8").splitlines()
             if ln.startswith("| Contract conversion |")]
     assert len(rows) == 1, rows
-    assert "neither defines nor inherits" in rows[0] and "`Ownable`" in rows[0], rows[0]
+    assert "`onlyPlatformFeeAdmin`" in rows[0] and "`Ownable`" in rows[0], rows[0]
 
 
 COMMENTED_OUT = ("contract Vault\n    state total: uint256\n\n    function add(x: uint256)\n"

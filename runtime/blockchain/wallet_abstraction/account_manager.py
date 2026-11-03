@@ -16,6 +16,17 @@ logger = logging.getLogger(__name__)
 # Supported chains for multi-chain balance lookups.
 _CHAINS = ("base", "ethereum", "polygon", "arbitrum", "optimism")
 
+#: The chain ids each name covers (mainnet and its public testnet). A balance
+#: is read only for the chain the shared connection is ON; every other chain
+#: is not queryable from here.
+_CHAIN_IDS: dict[str, frozenset[int]] = {
+    "base": frozenset({8453, 84532}),
+    "ethereum": frozenset({1, 11155111}),
+    "polygon": frozenset({137, 80002}),
+    "arbitrum": frozenset({42161, 421614}),
+    "optimism": frozenset({10, 11155420}),
+}
+
 # Conservative gas defaults when the chain is not directly queryable.
 _DEFAULT_GAS: dict[str, dict[str, float]] = {
     "base": {"gas_price_gwei": 0.005, "simple_tx_gas": 21_000},
@@ -82,11 +93,16 @@ class AccountManager:
                 if time.time() < expiry:
                     return value
 
-            # Only query if Web3 is available and asset is native ETH on the connected chain.
+            # Only query if Web3 is available and asset is native ETH on the
+            # connected chain. "On the connected chain" was in this comment
+            # and not in the condition: `chain` fed only the cache key, so
+            # get_all_balances stored the ONE connected chain's balance under
+            # all five names and summed it five times into total_usd.
             if (
                 self._web3.available
                 and self._web3.w3 is not None
                 and asset.upper() == "ETH"
+                and self._web3.chain_id in _CHAIN_IDS.get(str(chain).lower(), frozenset())
             ):
                 try:
                     balance = await asyncio.wait_for(

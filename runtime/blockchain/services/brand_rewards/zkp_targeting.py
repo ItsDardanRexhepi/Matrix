@@ -82,7 +82,15 @@ class ZKPTargeting:
         """Check if a user meets campaign criteria via ZKP.
 
         The user's data is never exposed to the brand. Only a boolean
-        eligibility result and a proof hash are returned.
+        eligibility result and a proof hash are returned — and a reason, which
+        says only that the criteria were not met. It used to name the failed
+        criteria ("tier below gold", "not active in category 'x'", "region
+        mismatch"), each a fact about the user's profile, and the brand-facing
+        distribution path put it in the error it raised.
+
+        Not a zero-knowledge proof, whatever the module is called: this is a
+        plain comparison against the stored profile, and ``proof_hash`` is a
+        hash of the user and campaign — it proves nothing to a third party.
 
         Args:
             campaign_id: The campaign to check against.
@@ -131,7 +139,7 @@ class ZKPTargeting:
             return {
                 "eligible": False,
                 "proof_hash": None,
-                "reason": "; ".join(failures),
+                "reason": "does not meet the campaign's criteria",
             }
 
         # User is eligible - add to cache

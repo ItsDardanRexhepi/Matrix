@@ -12,8 +12,7 @@ class WhatsAppChannel(Channel):
 
     @property
     def available(self) -> bool:
-        cfg = self._channel_config
-        return all(cfg.get(k) for k in ("account_sid", "auth_token", "from_number", "to_number"))
+        return self._filled("account_sid", "auth_token", "from_number", "to_number")
 
     async def send(self, message: str, *, level: str = "info", metadata: dict | None = None) -> dict:
         if not self.available:

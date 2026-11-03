@@ -14,8 +14,9 @@ Each step prints what the service answered, and a step counts as done only
 when the dispatcher reports that it happened (its call_outcome is "success").
 A claim is judged against oracle data the insurance service fetches itself,
 never against data the claimant sends, and it fails closed when no trigger or
-no oracle answer is available; any payout, and its amount, is the service's
-answer to report. Until the insurance contract is deployed, create_insurance
+no oracle answer is available. An approved claim is the service's decision
+and an entry against its reserve: it reports a payout amount and sends no
+funds to the holder. Until the insurance contract is deployed, create_insurance
 answers ``not_deployed`` and the claim and the policy read are skipped. The
 weather reading needs a weather provider configured for the oracle gateway.
 
@@ -53,8 +54,9 @@ async def main():
   The Matrix Example 04: Parametric Crop Insurance
 {'=' * 60}{RESET}
 
-  A policy that pays when the oracle's rainfall reading for the insured
-  place falls below the threshold the policy sets.
+  A policy whose claim is approved when the oracle's rainfall reading for
+  the insured place falls below the threshold the policy sets. The approval
+  is recorded against the reserve; no funds are sent.
 """)
 
     config = load_config()

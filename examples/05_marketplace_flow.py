@@ -16,10 +16,10 @@ Demonstrates the Marketplace service (Component 24):
 
 Each step prints what the service answered, and a step counts as done only
 when the dispatcher reports that it happened (its call_outcome is "success").
-When blockchain.eas_schema is a well-formed bytes32 UID (the code checks the
-form, not that it is registered), the service dispatcher queues an
-attestation for a sale it completes, written to the chain once 50 have
-gathered; otherwise the attempt is logged and dropped.
+The sale record says what it is: its status is `recorded_unsettled` and
+`value_moved` is False, so the service dispatcher neither attests it as a
+purchase nor announces it on the public feed, and the purchase step reports
+the sale as not confirmed.
 
 Usage:
     python examples/05_marketplace_flow.py

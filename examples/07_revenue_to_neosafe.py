@@ -113,7 +113,7 @@ contract SimpleToken {
 
             print(f"\n  {DIM}Injected elements, as found in the result:{RESET}")
             for element in ("platformFeeRecipient", "platformFeeBps", "collectPlatformFee",
-                            "_collectERC20Fee", "setPlatformFeeRecipient"):
+                            "_collectERC20Fee", "setPlatformFeeRecipient", "setPlatformFeeBps"):
                 print(f"    - {element}: {'present' if element in injected else 'not present'}")
         else:
             warn("platform_wallet not configured — showing injection pattern only")
@@ -121,7 +121,8 @@ contract SimpleToken {
             print(f"    - platformFeeRecipient = <NeoSafe address>")
             print(f"    - platformFeeBps = {fee_bps} ({fee_bps / 100:g}%)")
             print(f"    - collectPlatformFee modifier on payable functions")
-            print(f"    - Owner-only setters for fee config")
+            print(f"    - Owner-only setters for fee config (the contract's onlyOwner,")
+            print(f"      or the deployer when it has no owner)")
     except Exception as e:
         warn(f"RevenueEnforcer demo: {e}")
 

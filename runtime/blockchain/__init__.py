@@ -13,6 +13,10 @@ there, are exempt.
 ServiceDispatcher queues an EAS attestation, best effort, for a state-changing
 action that completed, written to the chain once 50 have gathered in the same
 process; a refusal or an unconfirmed broadcast is not attested as done.
+Without EAS configured, EASClient answers ``skipped`` and the action still
+happens. A blockchain capability called as an agent tool directly
+(``smart_contract``, ``nfts`` and the rest) does not pass through the
+dispatcher and is not attested there.
 
 This package exposes ``Web3Manager`` (and the ``not_deployed_response``
 helper) so services across the platform share a single web3 connection

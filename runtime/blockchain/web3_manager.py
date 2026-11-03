@@ -12,12 +12,24 @@ A single instance is shared across services. It is responsible for:
 - Detecting placeholder values in config so services can fall back to
   honest "not_deployed" responses instead of fabricating data.
 
-Web3Manager never raises an unhandled exception from public methods —
-errors are caught, logged, and surfaced as boolean availability or
-explicit ``RuntimeError`` from ``get_account``/``send_transaction``
-when the caller has explicitly opted into a real on-chain operation, and
-``BalanceUnavailable`` (a ``RuntimeError``) from ``get_balance_eth`` when no
-balance was read, because a 0.0 there is indistinguishable from an empty wallet.
+Web3Manager's constructor never raises: a connection that cannot be made
+leaves ``available`` False. The public methods that DO raise, which a caller
+opting into a real on-chain operation must handle, are:
+
+  * ``get_account`` / ``signer`` / ``send_transaction`` — ``RuntimeError``
+    when the chain or the paymaster key is not configured (``send_transaction``
+    also re-raises the node's own error after logging it);
+  * ``load_contract`` — ``RuntimeError`` when not available, ``ValueError``
+    for a placeholder or invalid address;
+  * ``wait_for_receipt`` — ``RuntimeError`` when not available, the last
+    error web3 raised while polling, or ``TimeoutError`` when no receipt
+    arrives in time;
+  * ``get_balance_eth`` — ``BalanceUnavailable`` (a ``RuntimeError``) when no
+    balance was read, because a 0.0 there is indistinguishable from an empty
+    wallet.
+
+This used to say the class "never raises an unhandled exception from public
+methods" and named only the first and the last of these.
 """
 
 from __future__ import annotations
@@ -104,6 +116,45 @@ def resolve_paymaster_key(config: dict | None) -> str:
     bc = (config or {}).get("blockchain", {}) if isinstance(config, dict) else {}
     bc = bc if isinstance(bc, dict) else {}
     return str(bc.get("paymaster_private_key") or bc.get("paymaster_key") or "")
+
+
+#: Set on an exception raised while the signed transaction was being handed
+#: to the node. What such an exception says about the transaction is nothing:
+#: a read timeout, a reset connection or a reply that does not decode can all
+#: come after the node accepted it, and the transaction may be mined. The two
+#: functions below spell the name out rather than read it from here, so the
+#: twin census can see which attribute they touch.
+HANDED_TO_NODE_ATTR = "raw_transaction_handed_to_node"
+
+#: Set beside it: the hash of the transaction whose bytes were handed over,
+#: taken from the signed transaction before the send, in the form a successful
+#: send returns its hash. It is what makes a transaction that may be mined
+#: checkable when the node's answer is lost.
+HANDED_TX_HASH_ATTR = "raw_transaction_hash"
+
+
+def mark_handed_to_node(exc: BaseException, tx_hash: str = "") -> None:
+    """Record on *exc* that it was raised by ``send_raw_transaction``, and,
+    when known, the hash of the signed transaction that was being sent."""
+    try:
+        setattr(exc, "raw_transaction_handed_to_node", True)
+        if tx_hash:
+            setattr(exc, "raw_transaction_hash", tx_hash)
+    except Exception:  # an exception type that takes no attributes
+        pass
+
+
+def handed_tx_hash(exc: BaseException) -> str:
+    """The hash of the signed transaction *exc* was raised while handing to
+    the node, or "" when it carries none."""
+    value = getattr(exc, "raw_transaction_hash", "")
+    return value if isinstance(value, str) else ""
+
+
+def was_handed_to_node(exc: BaseException) -> bool:
+    """True when *exc* came from handing a signed transaction to the node, so
+    the transaction may exist whatever the exception's type says."""
+    return getattr(exc, "raw_transaction_handed_to_node", False) is True
 
 
 class Web3Manager:
@@ -378,6 +429,7 @@ class Web3Manager:
 
                 signed = account.sign_transaction(tx_to_sign)
                 raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+                signed_hash = getattr(signed, "hash", None)
                 # Whatever the node answers, the signature's ledger row is not
                 # closed here. A refusal can be another backend's, relayed for
                 # bytes this one took, and a lookup by hash can be answered by a
@@ -385,7 +437,12 @@ class Web3Manager:
                 # own, or that of another transaction signed in its nonce slot,
                 # which is where the next send goes after a refusal
                 # (sponsorship.settle_signature).
-                tx_hash = self.w3.eth.send_raw_transaction(raw)
+                try:
+                    tx_hash = self.w3.eth.send_raw_transaction(raw)
+                except Exception as exc:
+                    mark_handed_to_node(exc, "" if signed_hash is None else (
+                        signed_hash.hex() if hasattr(signed_hash, "hex") else str(signed_hash)))
+                    raise
                 return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             except Exception as exc:
                 logger.error("Web3Manager.send_transaction failed: %s", exc)

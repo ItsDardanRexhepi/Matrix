@@ -162,20 +162,29 @@ class AuctionService:
         return self._cfg().get("orderbook_address", "") or ""
 
     def _to_wei(self, value: Any) -> int:
-        """Interpret *value* as a token base-unit integer.
+        """Interpret *value* as a token base-unit integer, or refuse it.
 
         Callers pass on-chain amounts already in base units (wei / smallest
-        token unit). We coerce to int and never fabricate scaling — if a caller
-        passes a float, it is treated as ether and converted, otherwise the
-        integer base-unit value is used verbatim.
+        token unit), and the integer is used verbatim — this is the "never
+        fabricate scaling" the method promises, and it used to break it twice:
+
+          * a float was multiplied by 10**18 as if every token had 18
+            decimals, so 1.5 of a 6-decimal token (USDC) became an amount
+            10**12 too large in the transaction the user is asked to sign;
+          * anything that was not a number became 0 — a fabricated zero price
+            or amount instead of an error.
+
+        Both are refused now. The decimals of a caller-named token are not
+        read anywhere here, so a float has no honest conversion.
         """
-        if isinstance(value, float):
-            # ether → wei, deterministic, no fabricated price.
-            return int(value * 10**18)
+        if isinstance(value, bool) or isinstance(value, float):
+            raise ValueError(
+                "amounts are integers in the token's base units; a float "
+                "cannot be converted without the token's decimals")
         try:
             return int(value)
         except (TypeError, ValueError):
-            return 0
+            raise ValueError(f"not a base-unit integer amount: {value!r}") from None
 
     def _gate_auction(self, method: str) -> dict | None:
         """Return a CREDENTIAL-GATED dict if the auction path is not usable."""
