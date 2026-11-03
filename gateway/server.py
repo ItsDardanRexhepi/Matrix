@@ -3518,11 +3518,17 @@ class GatewayServer:
         """Enforce rate limits, keyed by the strongest identity available.
 
         Precedence:
-          1. ``X-Wallet-Session`` header → per-wallet-address bucket
-             (SIWE-authenticated traffic).
+          1. A live wallet session — ``X-Wallet-Session``, or the
+             ``Authorization: Bearer`` the iOS app presents its Apple session
+             as, read the way the auth wall reads it — → per-account bucket.
           2. ``Authorization: Bearer <api_key>`` → per-API-key bucket
              (operator / integration tokens).
           3. Fall back to the client IP for anonymous traffic.
+
+        The session used to be read from ``X-Wallet-Session`` alone, so every
+        request of every signed-in app user fell into the anonymous bucket of
+        its address: users behind one carrier NAT shared its 20 requests a
+        minute and were answered 429 while each held a valid session.
         """
         if request.method == "OPTIONS":
             return await handler(request)
@@ -3530,13 +3536,7 @@ class GatewayServer:
         rate_key: str
         limiter: RateLimiter
 
-        wallet_token = request.headers.get("X-Wallet-Session", "").strip()
-        wallet_session = None
-        if wallet_token:
-            try:
-                wallet_session = self.wallet_sessions.get(wallet_token)
-            except Exception as exc:  # defensive — store unavailable, etc.
-                logger.debug("wallet session lookup failed: %s", exc)
+        wallet_session = self._wallet_session_from_request(request)
 
         if (
             wallet_session

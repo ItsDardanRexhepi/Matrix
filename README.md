@@ -1083,7 +1083,9 @@ launch:
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
 - **Per-wallet rate limiting** — three token buckets, keyed by the
-  wallet session, then the operator key, then the client IP. Each has
+  wallet session (the `X-Wallet-Session` header or the
+  `Authorization: Bearer` an app presents its sign-in as, per account),
+  then the operator key, then the client IP. Each has
   its own limit: `gateway.rate_limit_rpm_wallet` and
   `gateway.rate_limit_burst_wallet`; `…_authenticated` for the operator
   key, which `gateway.rate_limit_rpm` and `gateway.rate_limit_burst`
