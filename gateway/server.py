@@ -2236,17 +2236,18 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
         # NEW-7: issue_badge raises ValueError on a rejected/invalid request
-        # (e.g. a missing contract address or an audit report that does not
+        # (an address that is not one, no source, or an audit that does not
         # qualify). Uncaught, that surfaced as HTTP 500 — the server blaming
         # itself for the caller's bad input. 400 is the honest code.
+        if isinstance(body, dict) and "audit_report" in body:
+            # A caller that sends one is supplying the conclusion the badge is
+            # supposed to attest. It was logged and ignored, and the badge was
+            # issued with nothing in the answer to say so; it is refused.
+            return web.json_response(
+                {"status": "rejected",
+                 "error": "audit_report is not accepted: the platform audits the "
+                          "submitted source_code itself"}, status=400)
         try:
-            if "audit_report" in body:
-                # Not honoured, and not silently dropped either: a caller that
-                # sends one is trying to supply the conclusion the badge is
-                # supposed to attest.
-                logger.warning(
-                    "badge issue: ignoring a caller-supplied audit_report — the "
-                    "platform audits the source itself")
             result = await self.badge_manager.issue_badge(
                 contract_address=str(body.get("contract_address", "")),
                 contract_name=str(body.get("contract_name", "")),

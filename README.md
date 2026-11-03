@@ -1215,14 +1215,20 @@ The gateway serves a built-in web interface:
 A contract whose source passes the platform's own Glasswing audit can be
 issued a security badge with `POST /badge/issue` (behind the gateway's API
 key); the gateway audits the source itself, so a request cannot supply the
-verdict. A badge is a record in the gateway's database, stored with a hash of
-that audit report, with a page (`/badge/{badge_id}`), a status endpoint and an
-embed snippet. No EAS attestation is written for a badge, so the gateway that
+verdict, and a request that brings an `audit_report` is refused. A badge is
+a record in the gateway's database for a contract address (a 20-byte hex
+address, or no badge), stored with a hash of that audit report and the
+sha256 of the exact source audited (`source_sha256`, which the badge's
+status and the registry show), with a page (`/badge/{badge_id}`), a status
+endpoint and an embed snippet. The badge says which source passed; it does
+not check that the contract deployed at the address was compiled from that
+source. No EAS attestation is written for a badge, so the gateway that
 issued it is the only place to check one. The registry at `/badges` is public,
 but the badge page, its status, its embed and `/badge/widget.js` are not in the
 gateway's public set: with an API key set, a visitor without the key is
 answered 401 on each. A badge expires after one year; `BadgeManager` has a
-renewal method, but no route calls it.
+renewal method, which re-audits the badge's own source under its own name
+and refuses a revoked badge, but no route calls it.
 
 See `/glasswing` for the badge registry.
 

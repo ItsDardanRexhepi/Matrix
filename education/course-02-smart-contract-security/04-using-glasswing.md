@@ -77,7 +77,7 @@ carries source code, and a deployment whose source fails it is refused.
 A contract whose source passes the platform's own Glasswing audit (no Critical finding, and no High finding when `security.block_on_high` is on) can be issued a **Glasswing Security Badge** with `POST /badge/issue` (the gateway's API key is required where one is set). The gateway takes the source and audits it itself; a request cannot supply the verdict. The badge is:
 
 - A record in the gateway's database, not an on-chain attestation
-- Stored with a hash of the audit report it was issued on, and valid for one year
+- Issued for a contract address (a 20-byte hex address) and stored with a hash of the audit report it was issued on and the sha256 of the exact source that was audited, and valid for one year. It names which source passed; it does not check that the contract deployed at that address was compiled from that source
 - Shown at `/badge/{badge_id}`, with a status endpoint at `/badge/{badge_id}/status` and an embed snippet for your project's site
 - Listed in the public registry at `/badges`
 

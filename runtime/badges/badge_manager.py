@@ -22,6 +22,11 @@ _VERIFICATION_BASE = "https://openmatrix-ai.com/badge"
 _API_BASE = "https://api.openmatrix-ai.com"
 
 
+def _source_digest(source_code: str) -> str:
+    """The sha256 of the exact source text audited, as hex."""
+    return hashlib.sha256(str(source_code or "").encode("utf-8")).hexdigest()
+
+
 class BadgeManager:
     """SQLite-backed Glasswing security badge persistence.
 
@@ -58,11 +63,20 @@ class BadgeManager:
                 renewal_count       INTEGER DEFAULT 0,
                 status              TEXT DEFAULT 'valid',
                 contact_email       TEXT,
-                project_url         TEXT
+                project_url         TEXT,
+                source_sha256       TEXT
             )
             """,
             commit=True,
         )
+        # The digest of the source a badge was audited on. A table made before
+        # it existed gains it here; its earlier rows hold NULL, which says what
+        # is true of them: the source they rest on was not recorded.
+        columns = {row["name"] for row in await self.db.fetchall(
+            "PRAGMA table_info(security_badges)")}
+        if "source_sha256" not in columns:
+            await self.db.execute(
+                "ALTER TABLE security_badges ADD COLUMN source_sha256 TEXT", commit=True)
         await self.db.execute(
             """
             CREATE TABLE IF NOT EXISTS badge_sequence (
@@ -108,6 +122,10 @@ class BadgeManager:
         out["status"] = "passed"
         out["audited_by"] = "matrix-glasswing"
         out["audited_at"] = time.time()
+        # WHICH source. The report alone names findings and counts, so two
+        # different sources with the same findings left the same record; the
+        # digest of the exact text audited is what ties a badge to it.
+        out["source_sha256"] = _source_digest(source_code)
         return out
 
     async def issue_badge(
@@ -159,6 +177,12 @@ class BadgeManager:
         ValueError
             If the audit report does not have a passing status.
         """
+        from runtime.auth.identity import is_wallet_address
+        contract_address = str(contract_address or "").strip()
+        if not is_wallet_address(contract_address):
+            raise ValueError(
+                "contract_address must be a contract's 20-byte hex address "
+                "(0x followed by 40 hex digits)")
         audit_report = self._platform_audit(source_code, contract_name)
 
         now = time.time()
@@ -176,8 +200,9 @@ class BadgeManager:
             INSERT INTO security_badges
                 (badge_id, contract_address, contract_name,
                  audit_report_hash, issued_at, expires_at,
-                 renewal_count, status, contact_email, project_url)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 'valid', ?, ?)
+                 renewal_count, status, contact_email, project_url,
+                 source_sha256)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 'valid', ?, ?, ?)
             """,
             (
                 badge_id,
@@ -188,6 +213,7 @@ class BadgeManager:
                 expires_at,
                 contact_email,
                 project_url,
+                audit_report["source_sha256"],
             ),
             commit=True,
         )
@@ -208,6 +234,7 @@ class BadgeManager:
             "status": "valid",
             "contact_email": contact_email,
             "project_url": project_url,
+            "source_sha256": audit_report["source_sha256"],
             "verification_url": verification_url,
             "embed_code": embed_code,
             # What was actually audited, returned so the holder can see the
@@ -270,6 +297,7 @@ class BadgeManager:
             "status": effective_status,
             "contact_email": row["contact_email"],
             "project_url": row["project_url"],
+            "source_sha256": row["source_sha256"],
             "verified": verified,
             "time_until_expiry": time_until_expiry,
             "verification_url": f"{_VERIFICATION_BASE}/{row['badge_id']}",
@@ -302,14 +330,28 @@ class BadgeManager:
         ValueError
             If the badge does not exist or the new audit does not pass.
         """
-        new_audit_report = self._platform_audit(source_code, what="Renewal")
-
         row = await self.db.fetchone(
             "SELECT * FROM security_badges WHERE badge_id = ?",
             (badge_id,),
         )
         if not row:
             raise ValueError(f"Badge '{badge_id}' not found")
+        # A revoked badge stays revoked: renewal re-establishes a claim that
+        # expired, not one that was withdrawn.
+        if row["status"] == "revoked":
+            raise ValueError(f"Badge '{badge_id}' was revoked; a revoked badge is not renewed")
+        # The SAME source, under the badge's own name. A renewal that took any
+        # clean contract would move the badge onto code it was never issued on.
+        if not row["source_sha256"]:
+            raise ValueError(
+                f"Badge '{badge_id}' does not record the source it was audited on, "
+                "so a renewal cannot show it is the same source; issue a new badge")
+        if _source_digest(source_code) != row["source_sha256"]:
+            raise ValueError(
+                "Renewal refused: this is not the source the badge was issued on; "
+                "a changed source is audited for a new badge")
+        new_audit_report = self._platform_audit(
+            source_code, row["contract_name"], what="Renewal")
 
         now = time.time()
         new_expires = now + _BADGE_VALIDITY_SECONDS
@@ -346,6 +388,7 @@ class BadgeManager:
             "status": "valid",
             "contact_email": row["contact_email"],
             "project_url": row["project_url"],
+            "source_sha256": row["source_sha256"],
             "verification_url": f"{_VERIFICATION_BASE}/{badge_id}",
             "audit_report": new_audit_report,
         }
@@ -432,6 +475,7 @@ class BadgeManager:
                 "status": effective_status,
                 "contact_email": row["contact_email"],
                 "project_url": row["project_url"],
+                "source_sha256": row["source_sha256"],
                 "verification_url": f"{_VERIFICATION_BASE}/{row['badge_id']}",
             })
 
