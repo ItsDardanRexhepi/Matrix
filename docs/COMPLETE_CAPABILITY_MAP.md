@@ -126,7 +126,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|
 | Borrow Against NFT | Take a loan collateralised by an NFT | via capability registry · operator key only | BendDAO, NFTfi |
 | Liquidate NFT Loan | Liquidate a defaulted NFT loan | via capability registry · operator key only | BendDAO, NFTfi |
-| Breed NFT | Breed two NFTs to produce a new one; the call goes from the platform's wallet to the breeding contract the request names | via capability registry · operator key only | custom |
+| Breed NFT | Breed two NFTs to produce a new one; the call goes from the platform's wallet to the breeding contract the operator configured, and a request naming any other is refused | via capability registry · operator key only | custom |
 | Create Token-bound Account | Deploy an ERC-6551 account for a token | via capability registry · operator key only | ERC-6551 |
 | ~~Execute As TBA~~ **REFUSED** | Signed the request's call (a delegatecall if asked) from the platform's wallet, with the platform's ETH, to whatever contract the request named. Refused in the service and at every door. | via capability registry → refused | ERC-6551 |
 

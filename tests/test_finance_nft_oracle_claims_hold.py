@@ -12,8 +12,10 @@ Built true:
   * the DEX's "users pay nothing" — the pool's LP fee was taken while the
     trade said 0, and a swap that moved nothing said `confirmed`;
   * NFT lending: `onBehalfOf` "must be the platform account", and a caller
-    could name any beneficiary; breed_nft's contract override is named in the
-    module docstring, and a user session is refused it;
+    could name any beneficiary or breeding contract, the second for every
+    caller a session refusal does not cover (the operator's key, a dispatch in
+    process), and whichever contract the request named when none was
+    configured;
   * a quote for a predicate the platform would refuse now says so;
   * mint's royalty/rights writes are caught when refused, after the mint;
   * the oracle cache "never caches VRF" whatever the config, and a miss is
@@ -159,16 +161,77 @@ async def test_a_loan_cannot_name_another_beneficiary(monkeypatch):
     assert out.get("refused") is True
 
 
-def test_the_breeding_override_is_named_and_refused_to_a_session():
-    """breed_nft takes its contract from the caller as well as from config, so
-    the config gate is not the whole story: the module docstring says so, and
-    a user session is refused the action (the operator's key keeps it)."""
+class _SignedTo:
+    """Records the contract a platform-signed breed would be sent to."""
+
+    def __init__(self, svc, monkeypatch):
+        self.loaded: list = []
+        self.sent: list = []
+        monkeypatch.setattr(svc._web3, "available", True)
+        monkeypatch.setattr(svc._web3, "get_account", lambda: _Account())
+        monkeypatch.setattr(svc._web3, "chain_id", 8453, raising=False)
+        monkeypatch.setattr(svc._web3, "w3", type("W3", (), {
+            "to_checksum_address": staticmethod(lambda a: a)})(), raising=False)
+
+        def _load(address, _abi):
+            self.loaded.append(address)
+            fn = type("Fn", (), {"build_transaction": staticmethod(
+                lambda opts: {"to": address, **opts})})
+            return type("C", (), {"functions": type("F", (), {
+                "breed": staticmethod(lambda a, b: fn())})()})()
+
+        async def _send(tx, **_kw):
+            self.sent.append(tx["to"])
+            return "0x" + "ee" * 32
+
+        monkeypatch.setattr(svc._web3, "load_contract", _load)
+        monkeypatch.setattr(svc._web3, "send_transaction", _send)
+        monkeypatch.setattr(svc._web3, "explorer_url", lambda h: h, raising=False)
+
+
+async def test_a_caller_cannot_choose_the_breeding_contract(monkeypatch):
+    from runtime.blockchain.services.nft_lending.service import NFTLendingService
+
+    configured = "0x" + "04" * 20
+    svc = NFTLendingService({"services": {"nft_lending": {"breed_contract": configured}}})
+    signed = _SignedTo(svc, monkeypatch)
+    out = await svc.breed_nft(parent_a=1, parent_b=2, breed_contract="0x" + "99" * 20)
+    assert out.get("refused") is True, out
+    assert signed.loaded == [] and signed.sent == [], "something was built or signed"
+
+
+async def test_with_no_contract_configured_the_requests_is_not_taken(monkeypatch):
+    from runtime.blockchain.services.nft_lending.service import NFTLendingService
+
+    svc = NFTLendingService({"services": {"nft_lending": {}}})
+    signed = _SignedTo(svc, monkeypatch)
+    out = await svc.breed_nft(parent_a=1, parent_b=2, breed_contract="0x" + "99" * 20)
+    assert out.get("refused") is True, out
+    assert signed.sent == []
+
+
+async def test_scope_pin_the_configured_contract_is_still_called(monkeypatch):
+    """SCOPE PIN: the configured contract, named or not and in any letter
+    case, is the one the platform's signed call goes to."""
+    from runtime.blockchain.services.nft_lending.service import NFTLendingService
+
+    configured = "0x" + "0a" * 20
+    svc = NFTLendingService({"services": {"nft_lending": {"breed_contract": configured}}})
+    signed = _SignedTo(svc, monkeypatch)
+    plain = await svc.breed_nft(parent_a=1, parent_b=2)
+    named = await svc.breed_nft(parent_a=1, parent_b=2, breed_contract=configured.upper().replace("0X", "0x"))
+    assert plain["status"] == named["status"] == "submitted", (plain, named)
+    assert [a.lower() for a in signed.sent] == [configured, configured]
+
+
+def test_the_breeding_contract_is_named_as_the_configured_one_and_refused_to_a_session():
     from runtime.access_policy import REFUSED_TO_A_SESSION
     from runtime.blockchain.services.nft_lending import service as lending
 
     assert ("nft_lending", "breed_nft") in REFUSED_TO_A_SESSION
     doc = _prose(lending.__doc__)
-    assert "breed_nft`` also takes a ``breed_contract`` from its caller" in doc
+    assert "only the configured one is accepted" in doc
+    assert "also takes a ``breed_contract`` from its caller" not in doc
 
 
 def test_the_platform_is_named_as_the_sender_not_a_sponsor():

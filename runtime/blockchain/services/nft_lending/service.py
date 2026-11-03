@@ -30,11 +30,14 @@ the user's own wallet to sign — that path is gated behind operator config.
 Each method gates on its required config FIRST and returns the canonical
 CREDENTIAL-GATED ``not_deployed_response`` when a credential is missing or
 the chain is unreachable. The real protocol call is only attempted once the
-operator has populated the relevant ``services.nft_lending`` config keys,
-with one exception: ``breed_nft`` also takes a ``breed_contract`` from its
-caller, which satisfies that gate and aims a platform-signed transaction at the
-contract named. A user session is refused breed_nft for that reason
-(runtime/access_policy.py, REFUSED_TO_A_SESSION); the operator's key keeps it.
+operator has populated the relevant ``services.nft_lending`` config keys, and
+a caller cannot stand in for one: ``breed_nft`` used to take a
+``breed_contract`` from its caller, which satisfied that gate and aimed a
+platform-signed transaction at any contract named. A request may still name
+the breeding contract, and only the configured one is accepted: a request that
+names another, or names one when none is configured, is refused before
+anything is built or signed, whoever sends it. A user session is refused
+breed_nft as well (runtime/access_policy.py, REFUSED_TO_A_SESSION).
 
 Config keys (read from ``services.nft_lending``):
     - ``pool_address``      — lending-pool / LoanCore contract address for
@@ -418,7 +421,7 @@ class NFTLendingService:
         """Breed two parent NFTs into a child via a breeding game contract.
 
         Params: ``parent_a`` (token id), ``parent_b`` (token id), optional
-        ``breed_contract`` override.
+        ``breed_contract``, which must be the configured one.
 
         On-chain WRITE: ``breed(parentA, parentB)`` on the configured
         breeding contract, signed by the platform paymaster (gas-sponsored).
@@ -432,7 +435,23 @@ class NFTLendingService:
             parent_b = params.get("parentB")
 
         cfg = self._cfg()
-        breed_contract = params.get("breed_contract") or cfg.get("breed_contract", "")
+        configured = cfg.get("breed_contract", "")
+        breed_contract = params.get("breed_contract") or configured
+        # The platform's key signs this call, so the contract it is sent to is
+        # the operator's to choose: a request naming any other is refused, and
+        # so is one naming a contract when none is configured.
+        if str(breed_contract).lower() != str(configured).lower():
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "breed_nft",
+                "refused": True,
+                "reason": (
+                    "The breeding contract is the operator's configuration "
+                    "(services.nft_lending.breed_contract): a request may name "
+                    "only that one, because this call is signed with the "
+                    "platform's key."),
+            }
 
         # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
         if not self._web3.available:
