@@ -221,7 +221,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 7,201 tests, run against the versions
+automated suite of 7,267 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -620,7 +620,7 @@ check behind it:
   labelling it the way it labels a signed-in session. The deliberate
   exceptions are a privacy action and an operation that is private by
   what it is (an encrypted message, a credential, a KYC check, a
-  decentralized identifier's changes) refused on the `/api/v1` path: its
+  decentralized identifier's changes) refused on the `/api/v1` path: the
   decline is recorded with no actor and no claim, because naming who was
   refused is exactly what the privacy exclusion exists to prevent
 - **Deleting your account is all or nothing.** The conversations, their
