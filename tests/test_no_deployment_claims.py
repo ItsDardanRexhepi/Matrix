@@ -260,7 +260,6 @@ def test_smart_contract_deploy_action_refuses_without_touching_a_signer():
     out = asyncio.run(cap.execute(action="deploy", source_code="contract C {}"))
     payload = _json.loads(out)
     assert payload["status"] == "not_implemented"
-    assert "did not" not in payload["detail"].lower() or True
     assert "Nothing was deployed." in payload["detail"]
 
 

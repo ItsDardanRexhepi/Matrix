@@ -93,11 +93,14 @@ async def test_an_allowing_gate_lets_the_invoke_proceed(monkeypatch, invoked):
 
 
 async def test_the_gate_sees_the_catalog_verb_not_the_route(monkeypatch, invoked):
-    """A capability whose id and ACTION_MAP verb differ: the verb is the label."""
+    """A capability whose id and ACTION_MAP verb differ: the verb is the label.
+    No catalog row has one today, so the test made none and always skipped;
+    it builds the case it needs."""
     from runtime.capabilities import catalog
-    differing = next((c for c in catalog.CAPABILITIES if c.get("action") and c["action"] != c["id"]), None)
-    if differing is None:
-        pytest.skip("every catalog id equals its action verb")
+    base = catalog.get_by_id(CAPABILITY)
+    differing = {**base, "id": "probe_alias_of_" + CAPABILITY, "action": base["action"]}
+    assert differing["action"] != differing["id"]
+    monkeypatch.setitem(catalog._BY_ID, differing["id"], differing)
     gate = _Gate(allow=False)
     monkeypatch.setattr("runtime.security.get_morpheus_security", lambda: gate)
     server = _server()

@@ -12,8 +12,10 @@ derived, not hand-written:
   − exclusions       (routes that exist and are called but must NOT open to a
                        user session, each with its reason)
 
-Under-inclusion shows up as a 401 on a feature (visible); over-inclusion would
-be a silent privilege grant — so the derivation errs toward the former.
+Under-inclusion shows up as a 403 "forbidden" on a feature — the auth wall's
+answer to a session on a matched route it may not reach, which the app shows as
+a security block, not as a sign-in failure; over-inclusion would be a silent
+privilege grant — so the derivation errs toward the former.
 
 Usage:
     python3 scripts/generate_session_routes.py [--client PATH] [--check]

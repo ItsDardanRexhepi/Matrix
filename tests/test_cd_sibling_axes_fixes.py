@@ -2,7 +2,9 @@
 
 §CD: a prior fix establishes a CLASS; every sibling axis that class could apply
 to is unchecked until someone checks it. These are the axes the pass found
-unfixed, each with the control that reproduces it.
+unfixed, each with the control that reproduces it. The commit that added this
+file said it also pinned the three axes the sweep found already safe; it does
+not, and does not name them.
 """
 from __future__ import annotations
 

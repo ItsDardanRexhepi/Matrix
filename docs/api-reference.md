@@ -72,7 +72,7 @@ Send a message to an agent. Blocking — returns the full response at once.
 |--------------|--------|----------|-----------|------------------------------------------|
 | `message`    | string | yes      | —         | The user's message                       |
 | `agent`      | string | no       | `trinity` | One of `trinity`, `neo`, `morpheus`      |
-| `session_id` | string | no       | generated | Stable ID for conversation continuity    |
+| `session_id` | string | no       | see below | The caller's own conversation id. With a wallet session and no id sent, `user:<subject>`; in production, no id and no session answers 400 `session_required`; `"default"` only in development |
 | `context`    | string | no       | —         | Per-turn client context (language, recap). Up to 8,000 characters; reaches the model prefixed to that turn's message, between platform-written labels that mark it as client-supplied and mark where it ends. It is sent at the user role — never as system text, on any model provider (the Anthropic and Gemini clients merge every system message into the platform's instructions, so a separate system message would not stay separate there) — and never stored. It does not choose the model tier: intelligent routing classifies the message as the user wrote it. Honoured identically on `/chat`, `/chat/stream`, `/ws` and `/bridge/v1/chat`. |
 | `app_attest` | object | no       | —         | App Attest assertion, verified by the security gate |
 

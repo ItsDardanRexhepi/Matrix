@@ -240,3 +240,6 @@ def test_memory_scope_is_the_account_when_signed_in_else_the_conversation():
     assert server._memory_scope(_FakeRequest(), "conv-9") == "conv:conv-9"
     # An anonymous id spelled like an account subject still names a conversation.
     assert server._memory_scope(_FakeRequest(), "apple:X") == "conv:apple:X"
+    # Signed in, the scope is the account, whatever conversation it names.
+    server._session_subject = lambda _request: "apple:signed-in"
+    assert server._memory_scope(_FakeRequest(), "conv-9") == "apple:signed-in"
