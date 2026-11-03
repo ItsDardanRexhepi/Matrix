@@ -50,6 +50,19 @@ candidate**, so it structurally cannot enter anyone's feed — not the ranked fe
 the Latest feed, not even the viewer's own private items. Proof-shares carry an
 explicit `visibility`; plain posts have none and are public by default.
 
+The platform's live feed follows the same rule, at its own door. The service
+dispatcher hands every settled state-changing action to the public,
+unauthenticated `/social/feed`, and `SocialFeedEngine.ingest` stores none whose
+visibility, at the top of its params or in their `proof_data`, is anything but
+the word `public` in some letter case, or that sets a `private` or `is_private`
+flag; it never stores the privacy service's actions; and what it stores never
+includes the request body. A stored row carries the action, its service, the
+identity the entry point bound (and, when the request named a different one,
+that name too), the transaction hash and the figure that moved. The HTTP routes'
+ripple to every `/api/v1/events/stream` subscriber refuses the same items. All
+three surfaces decide with one function, the one `get_feed` uses
+(`social/visibility.py`, `is_public`).
+
 ## The score
 
 For each public candidate the linear score is a weighted sum of four terms:

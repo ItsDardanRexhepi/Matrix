@@ -46,12 +46,12 @@
 | POST | `/api/v1/fundraising/campaign/create` | `_handle_fundraising_create` | service_routes.py:269 |  |
 | POST | `/api/v1/fundraising/contribute` | `_handle_fundraising_contribute` | service_routes.py:270 |  |
 | POST | `/api/v1/gaming/register` | `_handle_gaming_register` | service_routes.py:298 |  |
-| GET | `/api/v1/governance/daos/{daoId}/proposals` | `_handle_dao_proposals` | service_routes.py:2775 |  |
+| GET | `/api/v1/governance/daos/{daoId}/proposals` | `_handle_dao_proposals` | service_routes.py:2786 |  |
 | POST | `/api/v1/governance/multisig/approve` | `_handle_multisig_approve` | service_routes.py:366 |  |
 | POST | `/api/v1/governance/proposal/create` | `_handle_governance_create` | service_routes.py:256 |  |
 | POST | `/api/v1/governance/snapshot/vote` | `_handle_snapshot_vote` | service_routes.py:367 |  |
 | POST | `/api/v1/governance/vote` | `_handle_governance_vote` | service_routes.py:257 |  |
-| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:2765 |  |
+| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:2776 |  |
 | POST | `/api/v1/iap/asn` | `handle_iap_asn` | server.py:2831 | ✅ |
 | POST | `/api/v1/iap/verify` | `handle_iap_verify` | server.py:2830 | ✅ |
 | POST | `/api/v1/identity/create` | `_handle_did_create` | service_routes.py:231 |  |
@@ -66,14 +66,14 @@
 | POST | `/api/v1/intent/resolve` | `_handle_intent_resolve` | service_routes.py:375 |  |
 | GET | `/api/v1/intent/summary/{plan_id}` | `_handle_intent_summary` | service_routes.py:377 |  |
 | POST | `/api/v1/ip/register` | `_handle_ip_register` | service_routes.py:301 |  |
-| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:2769 |  |
-| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:2771 |  |
+| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:2780 |  |
+| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:2782 |  |
 | POST | `/api/v1/loyalty/earn` | `_handle_loyalty_earn` | service_routes.py:276 |  |
 | POST | `/api/v1/loyalty/redeem` | `_handle_loyalty_redeem` | service_routes.py:277 |  |
 | POST | `/api/v1/marketplace/buy` | `_handle_marketplace_buy` | service_routes.py:253 |  |
 | POST | `/api/v1/marketplace/list` | `_handle_marketplace_list` | service_routes.py:252 |  |
-| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:2755 |  |
-| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:2756 |  |
+| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:2766 |  |
+| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:2767 |  |
 | POST | `/api/v1/nft/batch-mint` | `_handle_nft_batch_mint` | service_routes.py:334 |  |
 | POST | `/api/v1/nft/bridge` | `_handle_nft_bridge` | service_routes.py:336 |  |
 | POST | `/api/v1/nft/collection/create` | `_handle_nft_collection_create` | service_routes.py:225 |  |

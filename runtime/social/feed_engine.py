@@ -51,6 +51,12 @@ NOVELTY_WEIGHT = 0.15
 # Recency half-life in seconds (1 hour → score ≈ 0.5)
 RECENCY_HALF_LIFE = 3600.0
 
+#: The summary of the event ``SocialFeedEngine.ingest`` returns for an item it
+#: did not publish because it is not public. Nothing is stored for it. The
+#: durable outbox reads this word to record the delivery as declined, and
+#: spells it out itself (runtime/durable/wiring.py, FEED_DECLINED_SUMMARY).
+NOT_PUBLISHED_SUMMARY = "not published: the item is not public"
+
 # ── Human-readable action labels ─────────────────────────────────────
 ACTION_LABELS: Dict[str, str] = {
     # NEW-12: no "deployed a smart contract" label — the platform cannot
@@ -352,8 +358,34 @@ class SocialFeedEngine:
         This method is designed to be called via
         ``asyncio.create_task(engine.ingest(...))``. It must never
         raise — all errors are logged and swallowed.
+
+        NOTHING THAT IS NOT PUBLIC ENTERS THIS FEED. It is served to anyone
+        from /social/feed, with no session, and the service dispatcher hands
+        it every settled state-modifying action with the caller's params in
+        ``detail["params"]`` — a proof share's ``proof_data``, a "followers"
+        visibility included, an encrypted message's plaintext, a credential's
+        claims. Three rules hold at this door, whoever calls it:
+
+        * an item whose params, or whose detail, say it is not public by the
+          platform's one reading (``social.visibility.is_public``, which
+          SocialService's own feed uses) is not stored, and the event
+          returned for it carries :data:`NOT_PUBLISHED_SUMMARY`;
+        * the privacy service is never published, as the HTTP ripple has
+          never announced it: a zk proof, a pin or a deletion request under
+          its caller's address is itself the private fact;
+        * what is stored never includes the caller's params. Nothing reads
+          them back from a row; the row's summary, actor, value and
+          transaction hash are what the feed renders.
         """
         try:
+            from runtime.blockchain.services.social.visibility import is_public
+
+            detail = dict(detail or {})
+            params = detail.pop("params", None)
+            if detail.get("service") == "privacy" or not is_public(params, detail):
+                logger.info("Feed event not published (not public): %s", action)
+                return FeedEvent(event_type=action, summary=NOT_PUBLISHED_SUMMARY)
+
             await self._ensure_table()
 
             summary = ACTION_LABELS.get(action, f"performed {action}")
@@ -365,7 +397,7 @@ class SocialFeedEngine:
                 event_type=action,
                 actor=actor,
                 summary=summary,
-                detail=detail or {},
+                detail=detail,
                 component=component,
                 tx_hash=tx_hash,
                 value_usd=sanitize_value_usd(value_usd),

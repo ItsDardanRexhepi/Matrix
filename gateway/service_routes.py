@@ -956,6 +956,17 @@ class ServiceRoutes:
         # A collection result is a read/lookup, never a single consequential action.
         if isinstance(result, list):
             return
+        # Nothing that declares itself non-public is announced to every
+        # subscriber — a followers-only proof share rippled as "shared a proof"
+        # with its actor, which tells everyone the share exists. The same
+        # reading the public feed's own ingest and SocialService's feed use
+        # (social/visibility.py). A refusal of one is still recorded, without
+        # its actor, like a privacy action's.
+        from runtime.blockchain.services.social.visibility import is_public
+        if not is_public(kwargs, result):
+            if refused:
+                self._record_decline(service_name, method_name, result, actor="")
+            return
         m = method_name.lower()
         if any(m == p or m.startswith(p) for p in self._READ_PREFIXES):
             return

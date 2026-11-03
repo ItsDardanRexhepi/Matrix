@@ -15,6 +15,7 @@ from typing import Any
 from .messaging import XMTPMessaging
 from .content_moderation import ContentModeration
 from .proof_sharing import ProofSharing
+from .visibility import is_public
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class SocialService:
         self._feed_items: list[dict] = []
         self.messaging = XMTPMessaging(self.config)
         self.moderation = ContentModeration(self.config)
-        self.proof_sharing = ProofSharing(self.config)
+        self.proof_sharing = ProofSharing(self.config, is_follower=self._is_follower)
         logger.info("SocialService initialised")
 
     async def create_profile(self, address: str, display_name: str, bio: str) -> dict:
@@ -204,14 +205,18 @@ class SocialService:
             "comments": [],
         }
 
-        self._feed_items.append(feed_item)
-        profile["shared_proofs"].append(feed_item_id)
-
-        # Create a share record in proof_sharing
+        # The share record FIRST, because it is the half that can refuse:
+        # `create_share` rejects a visibility outside its three words and a
+        # `specific_addresses` share with no list (which this method never
+        # passes). It ran after the feed item was stored, so a share the
+        # caller was told had failed stayed in the feed anyway.
         attestation_uid = proof_data.get("attestation_uid", "")
         if attestation_uid:
             visibility = proof_data.get("visibility", "public")
             await self.proof_sharing.create_share(sharer, proof_type, attestation_uid, visibility)
+
+        self._feed_items.append(feed_item)
+        profile["shared_proofs"].append(feed_item_id)
 
         logger.info("Proof shared by %s (type=%s, id=%s)", sharer, proof_type, feed_item_id)
         return feed_item
@@ -242,16 +247,31 @@ class SocialService:
     def _item_comments(item: dict) -> int:
         return len(item.get("comments") or [])
 
+    def _is_follower(self, owner: str, viewer: str) -> bool:
+        """Does *viewer* follow *owner*, by the follow graph this service keeps
+        (the viewer's profile ``following`` list, which ``follow_wallet``
+        writes)? ProofSharing asks this before showing a followers-only share."""
+        profile = self._profiles.get(viewer) or {}
+        return owner in (profile.get("following") or [])
+
     @staticmethod
     def _is_public_item(item: dict) -> bool:
         """Privacy gate for feeds. Only publicly-visible items may enter ANY feed.
         Proof-shares carry visibility in proof_data; plain posts have none and are
         public by default. Anything not explicitly 'public' is treated as private
-        and never surfaced — the strict reading of 'never enters anyone's feed'."""
-        vis = item.get("visibility")
-        if vis is None:
-            vis = (item.get("proof_data") or {}).get("visibility", "public")
-        return str(vis).lower() == "public"
+        and never surfaced — the strict reading of 'never enters anyone's feed'.
+
+        "ANY feed" covers the platform's other one too. The dispatcher publishes
+        every settled state-modifying action to the public social feed, and
+        `send_message` is `share_proof`, so a followers-only share used to be
+        stored there with its proof_data and served to anyone. That feed's own
+        ingest (`SocialFeedEngine.ingest`) now refuses an item this reading
+        calls non-public, refuses the privacy service, and stores no caller
+        params at all; the HTTP ripple refuses the same items. All three
+        decide with ONE function, ``visibility.is_public``, which this method
+        is. A visibility at the top of an item does not outrank the one in its
+        ``proof_data``: both must say public."""
+        return is_public(item)
 
     async def get_feed(self, address: str, limit: int = 50, mode: str = "latest") -> list:
         """Get the social feed for a user.
