@@ -719,9 +719,23 @@ class ServiceRoutes:
         private security package isn't installed.
         """
         from gateway.security_gate import (
-            action_type_for, current_request_security, gate_action,
-            generic_denial, is_blocked,
+            action_type_for, bound_identity_source, current_request_security,
+            gate_action, generic_denial, is_blocked,
         )
+        # A user session acts only as the identity it is bound to: where the
+        # call names who acts (a seller, a buyer, a staker, the user whose
+        # points are spent), naming anyone else is refused here, before the
+        # gate or the service sees it — the dispatchers refuse the same
+        # operations the same way (runtime/access_policy.py SESSION_ACTS_AS).
+        if bound_identity_source() == "session":
+            from runtime.access_policy import acts_as_another
+            refused = acts_as_another((service_name, method_name), kwargs,
+                                      (current_request_security() or {}).get("wallet"))
+            if refused:
+                raise web.HTTPForbidden(
+                    text=json.dumps({"error": "forbidden", "message": refused}),
+                    content_type="application/json",
+                )
         decision = await gate_action(
             action_type_for(service_name, method_name), kwargs, current_request_security(),
             operation=(service_name, method_name),

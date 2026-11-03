@@ -455,6 +455,78 @@ def _unbound(fields: tuple[str, ...], params: object, identity: object) -> str |
     return None
 
 
+# Where the request names who ACTS — a listing's seller, a purchase's buyer, the
+# user whose points are redeemed, a staker, a contributor, a proposer, the
+# creator of a community or an asset — a user session may name only the
+# identity it is bound to. The /api/v1 routes that run these took the field
+# from the body and handed it to the service as written, and the dispatchers
+# that run the same methods by name did the same with the request's params, so
+# any Apple sign-in acted as any address it wrote. The fields are the method's
+# own parameter names (what the route passes and what a dispatched action's
+# params bind to). The request must name the session's own identity, in any
+# spelling of it, and naming another, or none, is refused before the service
+# runs. A session bound to no wallet address acts as its own subject
+# (``apple:<sub>``) and names no address it has not proven. The operator key
+# still names the party it acts for.
+SESSION_ACTS_AS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("agent_identity", "register_agent"): ("owner",),
+    ("dao_management", "create_dao"): ("creator",),
+    ("defi", "bridge_execute"): ("wallet",),
+    ("defi", "create_loan"): ("borrower",),
+    ("defi", "swap_execute"): ("wallet",),
+    ("dex", "swap"): ("trader",),
+    ("did_identity", "create_did"): ("owner",),
+    ("did_identity", "generate_zk_proof"): ("prover",),
+    ("dispute_resolution", "claim"): ("claimant",),
+    ("dispute_resolution", "file_dispute"): ("claimant",),
+    ("dispute_resolution", "vote"): ("juror",),
+    ("fundraising", "contribute"): ("contributor",),
+    ("fundraising", "create_campaign"): ("creator",),
+    ("gaming", "register_game"): ("developer",),
+    ("governance", "create_proposal"): ("proposer",),
+    ("governance", "vote"): ("voter",),
+    ("insurance", "create_policy"): ("holder",),
+    # /api/v1/ip/register passes `creator`, /api/v1/licensing/ip `owner`.
+    ("ip_royalties", "register_ip"): ("owner", "creator"),
+    ("loyalty", "redeem_points"): ("user",),
+    ("marketplace", "buy_item"): ("buyer",),
+    ("marketplace", "list_item"): ("seller",),
+    ("nft_services", "mint"): ("creator",),
+    ("rwa_tokenization", "tokenize_asset"): ("owner",),
+    ("securities_exchange", "create_security"): ("issuer",),
+    ("social", "create_community"): ("creator",),
+    ("social", "create_post"): ("author",),
+    ("staking", "stake"): ("staker",),
+    ("staking", "unstake"): ("staker",),
+    ("subscriptions", "subscribe"): ("user",),
+    ("supply_chain", "register_product"): ("manufacturer",),
+    # The payer of an x402 payment is the method's `agent_id`.
+    ("x402_payments", "create_payment"): ("agent_id",),
+}
+
+
+def acts_as_another(pair: object, params: object, identity: object) -> str | None:
+    """Why *params* have the operation *pair* act for someone other than the
+    session's own *identity*, or None (also when *pair* is not one where the
+    request names who acts). Compared in the one spelling the platform names
+    a caller by (runtime/auth/identity.py)."""
+    fields = SESSION_ACTS_AS.get(pair) if isinstance(pair, tuple) else None
+    if not fields:
+        return None
+    from runtime.auth.identity import same_caller
+    if not isinstance(params, dict):
+        return "The request's parameters could not be read. Nothing was done."
+    named = [(f, params[f]) for f in fields if params.get(f) not in (None, "")]
+    if not named:
+        return (f"A user session acts as itself here and names itself as "
+                f"{' or '.join(fields)}; this request names no one. Nothing was done.")
+    other = [f for f, v in named if not same_caller(v, identity)]
+    if other:
+        return (f"A user session acts only as the identity it is bound to, and this "
+                f"request's {', '.join(other)} names another. Nothing was done.")
+    return None
+
+
 def refused_to_the_caller(caller_kind: object, action: object, service: object = None,
                           params: object = None, identity: object = "") -> str | None:
     """Why a caller of *caller_kind* may not have *action* dispatched (with
@@ -466,8 +538,9 @@ def refused_to_the_caller(caller_kind: object, action: object, service: object =
     pairs and every pair in HANDS_THE_CALL_TO (with the method it hands the
     call to), held to its own address (*identity*) in BOUND_TO_THE_CALLER's,
     and to the listed values in HELD_FOR_A_SESSION's: a held value of any
-    other type or value is refused, never raised on. Resolved on the pair, the
-    way ServiceDispatcher.execute resolves it."""
+    other type or value is refused, never raised on. Where the request names
+    who acts (SESSION_ACTS_AS), it must name the caller's own *identity*.
+    Resolved on the pair, the way ServiceDispatcher.execute resolves it."""
     if caller_kind in ("operator", ""):
         return None
     pair = dispatch_pair(action, service)
@@ -488,7 +561,7 @@ def refused_to_the_caller(caller_kind: object, action: object, service: object =
         value = params.get(field) if isinstance(params, dict) else None
         if not (isinstance(value, str) and value in allowed):
             return _SESSION_ORACLE
-    return None
+    return acts_as_another(pair, params, identity)
 
 
 def operation_could_move_value(action_type: str | None, service: str | None = None,

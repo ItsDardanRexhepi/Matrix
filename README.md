@@ -594,6 +594,16 @@ check behind it:
   rather than adopted. Which agent answers is settled by one resolver, so
   a different spelling of a privileged agent's name is not a way past the
   operator check
+- **A user session acts only as itself.** Where a request names who acts —
+  a listing's seller, a purchase's buyer, the user whose loyalty points are
+  redeemed, a staker, a contributor, a proposer, a borrower, a payment's
+  payer, the creator of a community, a DAO or an asset — a user session must
+  name the identity it is bound to, in any spelling of it, on the `/api/v1`
+  route and on every dispatcher that runs the same operation by name; naming
+  anyone else, or no one, is refused before the service runs. A session
+  bound to no wallet acts as its own `apple:<sub>`, and an address it has not
+  proven is not its own. The operator key still names the party it acts for
+  (`runtime/access_policy.py`, `SESSION_ACTS_AS`)
 - **A record names who the platform resolved, not who the request said.**
   The attestation, the decline record, the broadcast record and the public
   live feed are all attributed to the identity the entry point bound for
