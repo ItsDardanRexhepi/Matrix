@@ -42,6 +42,13 @@ class FakeDB:
     async def fetchone(self, sql, params=()):
         return self.conn.execute(sql, params).fetchone()
 
+    async def run_in_transaction(self, work):
+        # The real Database runs *work* as one transaction under its write
+        # lock; this single-connection stand-in has nothing to interleave with.
+        result = work(self.conn)
+        self.conn.commit()
+        return result
+
 
 @pytest.fixture
 def fake_db():

@@ -265,8 +265,9 @@ class AttestationService:
         #     pending=4 and zero flushes; the fifth flushed all five.
         #   * INTERVAL TIMER — `_auto_flush_loop` sleeps `flush_interval` and
         #     flushes whatever is pending. It is created ONLY by
-        #     `BatchProcessor.start()`, and `start()` has NO CALLER anywhere
-        #     in the repo. Checked five ways: repo-wide grep for `.start()`
+        #     `BatchProcessor.start()`, whose only caller is this service's own
+        #     `start()` — and THAT has NO CALLER anywhere in the repo (six
+        #     constructions, none started). Checked five ways: repo-wide grep for `.start()`
         #     and `.flush()`; grep for on_startup/on_cleanup/cleanup_ctx
         #     across gateway/, runtime/, cli/; and a full read of the single
         #     registered startup hook (gateway/server.py `_start_cleanup_task`

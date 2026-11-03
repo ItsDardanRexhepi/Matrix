@@ -24,6 +24,12 @@ from runtime.social.feed_engine import FeedEvent
 ICONS: Dict[str, str] = {
     # NEW-12: no deploy_contract icon — the feed can never render a
     # deployment, because the platform cannot perform one.
+    #
+    # `create_game` carried a 🎮 here and a Gaming category below, against a
+    # label that read "deployed a blockchain game" and an action that does not
+    # exist. All three are gone, and a test now requires every icon and every
+    # categorised action to have a label — deleting one of the three and
+    # leaving the others is how a removed row comes back.
     "swap_tokens": "🔄",
     "add_liquidity": "💧",
     "remove_liquidity": "💧",
@@ -51,7 +57,6 @@ ICONS: Dict[str, str] = {
     "create_insurance_policy": "🛡️",
     "file_insurance_claim": "📑",
     "convert_contract": "🔀",
-    "create_game": "🎮",
     "register_supply_item": "📦",
     "verify_product": "🔍",
     "create_attestation": "📝",
@@ -100,9 +105,6 @@ CATEGORIES: Dict[str, List[str]] = {
     "IP & Supply": [
         "register_ip", "create_license", "register_supply_item",
         "verify_product",
-    ],
-    "Gaming": [
-        "create_game",
     ],
 }
 

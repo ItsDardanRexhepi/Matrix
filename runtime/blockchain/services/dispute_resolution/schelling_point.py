@@ -54,9 +54,12 @@ class SchellingPoint:
     ) -> dict:
         """Submit a vote commitment for a dispute.
 
-        The actual vote and justification are hashed together; only the
-        hash is stored during the commit phase so other jurors cannot
-        see how anyone voted.
+        The actual vote and justification are hashed together, and the hash
+        is what the commit phase publishes. The plaintext is stored too, in
+        the same per-dispute state, so the reveal phase can reveal it without
+        the juror — this used to say "only the hash is stored". Other jurors
+        see only the hash through this service's methods; anything that can
+        read the state can read the vote.
 
         Args:
             dispute_id: Dispute being voted on.

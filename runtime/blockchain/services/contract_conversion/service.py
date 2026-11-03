@@ -29,7 +29,11 @@ from runtime.blockchain.services.contract_conversion.templates import (
     list_templates,
 )
 from runtime.blockchain.services.contract_conversion.tier_manager import TierManager
-from runtime.blockchain.web3_manager import Web3Manager, settle_transaction
+from runtime.blockchain.web3_manager import (
+    Web3Manager,
+    settle_transaction,
+    unconfirmed_broadcast,
+)
 from runtime.security.audit import ContractAuditor
 
 logger = logging.getLogger(__name__)
@@ -99,10 +103,14 @@ class ContractConversionService:
     ) -> dict[str, Any]:
         """Compile *solidity_source* via solcx and deploy via Web3Manager.
 
-        Returns ``{"status": "error", ...}`` when nothing was deployed, and
-        otherwise what the receipt said: ``deployed`` with the contract address
-        when it confirmed, ``failed`` when it reverted, ``pending`` with the
-        hash when no receipt arrived in time. Raises only on cancellation.
+        Nothing was deployed when it returns ``{"status": "skipped", ...}`` (no
+        chain, or no compiler) or ``{"status": "error", ...}`` (the compile
+        failed, or the deployment failed before it was sent). Otherwise it
+        answers from the chain: ``deployed`` with the contract address when
+        the receipt confirmed it, ``failed`` when it reverted, and ``pending``
+        with the hash and ``broadcast: True`` when no receipt arrived in time or
+        the send itself raised, because the node may have accepted it either
+        way. Raises only on cancellation.
         """
         if not self._web3.available:
             return {
@@ -132,6 +140,13 @@ class ContractConversionService:
                 artifact_key = key
                 break
         if artifact_key is None:
+            # `next(iter(...))` on an empty compile output raised StopIteration
+            # out of a method whose docstring says it raises only on
+            # cancellation. An empty artifact map is a compile result with
+            # nothing in it, answered like any other compile failure.
+            if not compiled:
+                return {"status": "error", "stage": "compile",
+                        "error": "compiler produced no contract artifacts"}
             artifact_key = next(iter(compiled.keys()))
         artifact = compiled[artifact_key]
         abi = artifact.get("abi", [])
@@ -163,11 +178,45 @@ class ContractConversionService:
             tx["gas"] = int(w3.eth.estimate_gas(tx) * 1.2)
             signed = account.sign_transaction(tx)
             raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+        except Exception as exc:
+            logger.error("On-chain deployment failed before it was sent: %s", exc)
+            return {"status": "error", "stage": "deploy", "error": str(exc)}
+
+        # THE SEND IS ITS OWN STEP, because a fault in it is not "nothing was
+        # deployed". It shared the `try` above, so a read timeout or a reply
+        # that did not decode — raised after the node had the signed bytes —
+        # came back {"status": "error"}, and a retry deployed a second
+        # contract. The hash is known before the send (it is the hash of the
+        # signed bytes), so the answer is the unconfirmed broadcast, with it.
+        try:
             tx_hash = w3.eth.send_raw_transaction(raw)
             tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
         except Exception as exc:
-            logger.error("On-chain deployment failed: %s", exc)
-            return {"status": "error", "stage": "deploy", "error": str(exc)}
+            logger.error("On-chain deployment send raised: %s", exc)
+            local_hash = getattr(signed, "hash", None)
+            if local_hash is None and isinstance(raw, (bytes, bytearray)):
+                try:
+                    from eth_utils import keccak  # noqa: PLC0415
+                    local_hash = keccak(bytes(raw))
+                except Exception:  # noqa: BLE001 — the answer stands without it
+                    local_hash = None
+            out = unconfirmed_broadcast(
+                local_hash if local_hash is not None else "", {"stage": "deploy"})
+            out["error"] = str(exc)
+            out["disclosure"] = (
+                "The signed deployment was handed to the node and the send "
+                "raised, so whether the node accepted it is unknown. This is "
+                "NOT a refusal and NOT a failure: it may be mined. Check the "
+                "hash before retrying, because a retry deploys a second "
+                "contract." if local_hash is not None else
+                "The signed deployment was handed to the node and the send "
+                "raised, so whether the node accepted it is unknown, and its "
+                "hash could not be computed here. Check the deployer "
+                "account's transactions before retrying."
+            )
+            if local_hash is None:
+                out["tx_hash"] = None
+            return out
 
         # A DEPLOYMENT IS DEPLOYED WHEN ITS RECEIPT SAYS SO. This returned
         # "deployed" with the receipt's `contractAddress` and `blockNumber` and
@@ -313,15 +362,22 @@ class ContractConversionService:
             #
             # The regex pipeline recovers names, state variables, and function
             # signatures, but does NOT synthesise function bodies. A pseudocode
-            # declaration therefore yields a syntactically valid but behaviorally
-            # inert contract: the functions exist and do nothing.
+            # declaration therefore yields a syntactically valid contract whose
+            # declared functions do nothing of their own. Not quite inert: with
+            # fee injection on (the default), a body-less PAYABLE function
+            # gains `collectPlatformFee(msg.value)`, so calling it moves the
+            # platform's fee. Such a contract has no executable logic of its
+            # own, so it never passes the audit gate below and cannot deploy.
             #
             # Two consequences the old code reported dishonestly:
             #   part 2 — a conversion with unimplemented (empty-body) functions
             #            is not a "success"; it is "partial", and the caller is
             #            owed the explicit list of what was left empty.
-            #   part 3 — the Glasswing auditor finds nothing to flag in a
-            #            contract with no statements, so it returned passed=True.
+            #   part 3 — the Glasswing auditor finds nothing to flag at critical
+            #            or high severity in a contract with no statements (it
+            #            does flag low ones — the floating pragma every
+            #            generated contract carries), so it returned
+            #            passed=True.
             #            A green security verdict on a contract that cannot
             #            function is the actual hazard: the false all-clear. When
             #            there is no executable logic there is nothing to audit,
@@ -373,7 +429,11 @@ class ContractConversionService:
                 )
 
             if not has_executable_logic:
-                # No statements anywhere — the audit cannot render a verdict.
+                # None of the caller's functions has a statement — so the
+                # verdict the auditor rendered (it did run, above, and its
+                # report is set aside here) is not one worth giving. Injected
+                # fee code may still have statements; it is the platform's,
+                # not the logic the caller asked to have audited.
                 audit_dict = {
                     "verdict": "not_applicable",
                     "reason": (

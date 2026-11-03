@@ -7,8 +7,10 @@ Statically extracts every HTTP route the gateway registers — from both the
 renders ``docs/ROUTES.md``: method, path, handler, source ``file:line``, and
 whether the path is in ``_public_paths`` (no API key required).
 
-Read-only and import-free: it parses source text, so it runs anywhere (CI, a
-laptop, a locked-down box) with no model, no network, no app construction.
+Import-free: it parses source text, so it runs anywhere (CI, a laptop, a
+locked-down box) with no model, no network, no app construction. It is
+read-only in ``--check`` mode only; run without it, it (re)writes
+docs/ROUTES.md, which is what the usage line below says.
 
 Usage:
     python scripts/generate_route_table.py           # (re)write docs/ROUTES.md

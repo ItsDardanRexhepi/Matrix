@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-State-modifying capabilities below are signed by the platform, which pays their gas within the operator's sponsorship policy (`runtime/blockchain/sponsorship.py`). An action allowlist, when the policy sets one, binds the platform's signature with or without a daily cap: an operation not on the list is refused, and so is an app-signed user operation sent to `/api/v1/paymaster/sign`. A per-identity daily cap, when the policy sets one, also refuses an operation past the cap or not attributable to a signed-in identity, rather than charging it to the user. With neither set, the platform signs a capability's transaction without a limit. The attestation capabilities (`create_attestation`, `batch_attest`, `revoke_attestation`) are refused at every door, whoever asks, and are metered, as `attestation.attest`, `attestation.batch_attest` and `attestation.revoke`, only where the platform's own code calls them in process: the platform's key signs no attestation a request composes and revokes none a request names. 10 actions of Neo's blockchain tools `agent_identity`, `identity`, `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain` are metered the same way, each under its own name; the `eas` tool's `attest`, `batch_attest` and `revoke` are refused. The writes listed in `UNMETERED_PLATFORM_OPERATIONS` are the platform's own records, signed with the platform key with no policy check: the service dispatcher's record of each state-modifying action it completes, `convert_contract`'s record of a contract it deployed with `conversion.auto_deploy` on, and the real-estate routes' records with `services.real_estate.enabled` set; the list also holds `GasSponsor.sponsor_transaction`, which nothing calls. [`docs/blockchain.md`](blockchain.md#signed-with-the-platform-key-with-no-policy-check) lists every path by file and function. Read-only capabilities don't touch a chain. Some operations carry a platform fee; see **Fees** in `docs/blockchain.md`. Every capability in the catalog is free tier (its `min_tier` is `free`), so the tables carry no tier column.
+State-modifying capabilities below are signed by the platform, which pays their gas within the operator's sponsorship policy (`runtime/blockchain/sponsorship.py`). An action allowlist, when the policy sets one, binds the platform's signature with or without a daily cap: an operation not on the list is refused, and so is an app-signed user operation sent to `/api/v1/paymaster/sign`. A per-identity daily cap, when the policy sets one, also refuses an operation past the cap or not attributable to a signed-in identity, rather than charging it to the user. With neither set, the platform signs a capability's transaction without a limit. The attestation capabilities (`create_attestation`, `batch_attest`, `revoke_attestation`) are refused at every door, whoever asks, and are metered, as `attestation.attest`, `attestation.batch_attest` and `attestation.revoke`, only where the platform's own code calls them in process: the platform's key signs no attestation a request composes and revokes none a request names. 10 actions of Neo's blockchain tools `agent_identity`, `identity`, `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain` are metered the same way, each under its own name; the `eas` tool's `attest`, `batch_attest` and `revoke` are refused. The writes listed in `UNMETERED_PLATFORM_OPERATIONS` are the platform's own records, signed with the platform key with no policy check: the service dispatcher's record of each state-modifying action it completes, `convert_contract`'s record of a contract it deployed with `conversion.auto_deploy` on, and the real-estate routes' records with `services.real_estate.enabled` set; the list also holds `GasSponsor.sponsor_transaction`, which nothing calls. [`docs/blockchain.md`](blockchain.md#signed-with-the-platform-key-with-no-policy-check) lists every path by file and function. Some capabilities instead prepare an unsigned transaction for your own wallet to sign (advanced governance, auctions), and your wallet pays that gas. Read-only capabilities don't touch a chain. Some operations carry a platform fee; see **Fees** in `docs/blockchain.md`. Every capability in the catalog is free tier (its `min_tier` is `free`), so the tables carry no tier column.
 
 ---
 
@@ -43,7 +43,7 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
-| Token Swap | Swap one token for another through the DEX service's in-memory pools, on the best of the direct and bridge-token routes | POST /api/v1/dex/swap | The service's own pools (no Uniswap, Curve or Balancer integration) |
+| Token Swap | A swap against the DEX service's in-memory pools, on the best of the direct and bridge-token routes, recorded, not settled: no tokens move and no transaction is sent (the result says `recorded_unsettled`); each pool hop deducts its fee tier, the platform takes none | POST /api/v1/dex/swap | The service's own pools (no Uniswap, Curve or Balancer integration) |
 | Swap Route | Get the optimal swap route across DEXs | POST /api/v1/defi/swap/route | Uniswap V3, Curve, 1inch |
 | Swap Execute | Execute a pre-computed swap route | POST /api/v1/defi/swap/execute | Uniswap V3, Curve, 1inch |
 | Liquidity Add | Add liquidity to one of the DEX service's in-memory pools | POST /api/v1/dex/liquidity/add | The service's own pools (no Uniswap or Curve integration) |
@@ -126,7 +126,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|
 | Borrow Against NFT | Take a loan collateralised by an NFT | via capability registry · operator key only | BendDAO, NFTfi |
 | Liquidate NFT Loan | Liquidate a defaulted NFT loan | via capability registry · operator key only | BendDAO, NFTfi |
-| Breed NFT | Breed two NFTs to produce a new one; the call goes from the platform's wallet to the breeding contract the request names | via capability registry · operator key only | custom |
+| Breed NFT | Breed two NFTs to produce a new one; the call goes from the platform's wallet to the breeding contract the operator configured, and a request naming any other is refused | via capability registry · operator key only | custom |
 | Create Token-bound Account | Deploy an ERC-6551 account for a token | via capability registry · operator key only | ERC-6551 |
 | ~~Execute As TBA~~ **REFUSED** | Signed the request's call (a delegatecall if asked) from the platform's wallet, with the platform's ETH, to whatever contract the request named. Refused in the service and at every door. | via capability registry → refused | ERC-6551 |
 
@@ -140,12 +140,12 @@ The sections below organise every capability by its high-level category. Older c
 | Create DID (expanded) | Create a DID with extended method support | POST /api/v1/identity/did/create | DID:matrix, DID:ethr |
 | Update DID | Update a DID document | via capability registry | DID:matrix |
 | Deactivate DID | Deactivate a DID | via capability registry | DID:matrix |
-| Issue Credential | Issue a verifiable credential to a subject | POST /api/v1/identity/credential/issue | W3C VC, EAS |
-| Verify Credential | Verify the validity of a credential | POST /api/v1/identity/credential/verify | W3C VC, EAS |
+| Issue Credential | Issue a credential to a subject, held in the gateway's memory; its proof is a digest the gateway records, not a signature | POST /api/v1/identity/credential/issue | shaped after W3C VC |
+| Verify Credential | Check a credential the gateway issued, by its id: present, unexpired, unrevoked | POST /api/v1/identity/credential/verify | shaped after W3C VC |
 | Reputation Query | Query aggregated on-chain reputation for an agent | via capability registry | custom |
 | Start KYC | Start a KYC session with the configured provider | via capability registry · operator key only | Sumsub, Persona |
-| Check AML Risk | Screen an address for AML risk | via capability registry · operator key only | Sumsub, Persona |
-| ~~Issue KYC Credential~~ **REFUSED** | The verification it attested was read from the request. Refused at every door until the service fetches the provider's own result. | via capability registry → refused | W3C VC |
+| Check AML Risk | Fetch the provider's review for a KYC applicant and say whether a sanctions screen ran (a Persona response is fetched and not graded) | via capability registry · operator key only | Sumsub |
+| ~~Issue KYC Credential~~ **REFUSED** | Refused at every door. The service reads the provider's own review for the applicant it is given and still refuses: nothing the platform holds ties that applicant to the wallet the credential would name. | via capability registry → refused | W3C VC |
 | Register / Update / Deregister Agent | Manage an AI agent identity | via capability registry | custom |
 | ~~Create / Revoke / Batch Attest~~ **REFUSED** | The platform's key signs no attestation a request composes and revokes none a request names; it attests an action when it executes it. Refused at every door. | via capability registry → refused | EAS |
 | Attestation Verify | Verify an on-chain attestation by UID | GET /api/v1/attestation/verify/{uid} | EAS |
@@ -244,7 +244,7 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
 | Oracle Price Query | Get the current price for a trading pair | GET /api/v1/oracle/price/{pair} | Chainlink, Pyth, Band |
-| Oracle VRF | Request verifiable randomness | via capability registry | Chainlink VRF |
+| Oracle VRF | Not available: the request is refused (`not_implemented`) rather than sent — no signer or subscription is wired | via capability registry | — |
 | Weather Oracle | Query weather data for an address | via capability registry | custom |
 | Pyth Pull | Pull a Pyth price update on demand | via capability registry | Pyth |
 | RedStone Request | Fetch a signed RedStone data package; with the platform's API key, at the data-service path the request names | via capability registry · operator key only | RedStone |

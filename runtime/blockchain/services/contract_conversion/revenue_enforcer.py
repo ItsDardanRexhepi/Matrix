@@ -2,9 +2,12 @@
 RevenueEnforcer — inject platform fee collection logic into generated
 Solidity contracts.
 
-The fee recipient address is always read from config (``platform_wallet``),
-never hardcoded.  Supports both ETH-transfer and ERC-20-transfer fee
-patterns.
+The fee recipient address is read from config (``platform_wallet``) and
+never hardcoded — unless the caller of ``inject_fee_logic`` passes
+``fee_recipient``, which overrides it. The conversion pipeline passes none,
+so every contract it generates pays the configured wallet; a direct caller
+of this class can name another. Supports both ETH-transfer and
+ERC-20-transfer fee patterns.
 """
 
 from __future__ import annotations
@@ -70,15 +73,40 @@ _ERC20_FEE_FUNCTION = """\
 """
 
 _SET_FEE_RECIPIENT = """\
-    function setPlatformFeeRecipient(address newRecipient) external onlyOwner {{
+    function setPlatformFeeRecipient(address newRecipient) external {guard} {{
         require(newRecipient != address(0), "Zero address");
         platformFeeRecipient = newRecipient;
     }}
 
-    function setPlatformFeeBps(uint256 newBps) external onlyOwner {{
+    function setPlatformFeeBps(uint256 newBps) external {guard} {{
         require(newBps <= 1000, "Fee too high");
         platformFeeBps = newBps;
     }}
+"""
+
+# OWNER-ONLY, IN EVERY CONTRACT — NOT ONLY THE ONES THAT BRING AN OWNER.
+# The setters used to say `onlyOwner` unconditionally. A contract that
+# inherits Ownable (every template) or declares an onlyOwner modifier has
+# one; a contract generated from a declaration usually has neither, and there
+# `onlyOwner` was an undeclared identifier: the source did not compile while
+# the conversion reported success, and the "owner-only setters" this module
+# promised existed in no deployable contract. Where no owner exists, the fee
+# setters are guarded by the address that deployed the contract, recorded in
+# the constructor — the nearest thing to an owner such a contract has.
+_FEE_ADMIN_STATE = """\
+    // Who may change the platform fee settings: the deployer.
+    address public platformFeeAdmin;
+"""
+
+_FEE_ADMIN_MODIFIER = """\
+    modifier onlyPlatformFeeAdmin() {
+        require(msg.sender == platformFeeAdmin, "Not fee admin");
+        _;
+    }
+"""
+
+_FEE_ADMIN_INIT = """\
+        platformFeeAdmin = msg.sender;
 """
 
 
@@ -86,7 +114,8 @@ _SET_FEE_RECIPIENT = """\
 # fee logic declares or uses (identifiers.py keeps a contract name off them).
 INJECTED_SNIPPETS = (
     _FEE_STATE_VARS, _FEE_CONSTRUCTOR_INIT, _FEE_MODIFIER, _FEE_TOKEN_INTERFACE,
-    _ERC20_FEE_FUNCTION, _SET_FEE_RECIPIENT,
+    _ERC20_FEE_FUNCTION, _SET_FEE_RECIPIENT, _FEE_ADMIN_STATE,
+    _FEE_ADMIN_MODIFIER, _FEE_ADMIN_INIT,
     # _apply_modifier_to_payable writes this; the constructor it may create
     # adds only the `constructor` keyword.
     "collectPlatformFee(msg.value) constructor",
@@ -129,7 +158,10 @@ class RevenueEnforcer:
         3. Adds ``_collectERC20Fee`` internal helper, and declares the one
            ERC-20 function it calls (``IMatrixFeeToken.transfer``) at file
            level, so the helper compiles whether or not IERC20 is in scope.
-        4. Adds owner-only setters for recipient and bps.
+        4. Adds owner-only setters for recipient and bps: guarded by the
+           contract's own ``onlyOwner`` where it has one (Ownable, or a
+           declared ``onlyOwner`` modifier), and otherwise by
+           ``onlyPlatformFeeAdmin`` — the deployer, recorded in the constructor.
         5. Initialises fee recipient in the constructor.
         6. Applies ``collectPlatformFee`` to all ``payable`` functions.
 
@@ -170,14 +202,25 @@ class RevenueEnforcer:
         source = self._inject_before_closing_brace(source, _ERC20_FEE_FUNCTION)
         source = self._declare_fee_token_interface(source)
 
-        # 4. Inject setters
-        source = self._inject_before_closing_brace(source, _SET_FEE_RECIPIENT)
+        # 4. Inject setters, guarded by an owner the contract actually has.
+        # The admin's modifier goes inside the contract, after its opening
+        # brace: by now the first `function` in the file can be the
+        # file-level IMatrixFeeToken interface's (step 3), and a modifier put
+        # before it lands in the interface, where platformFeeAdmin does not
+        # exist and the draft does not compile.
+        has_owner = self._has_owner_modifier(source)
+        if not has_owner:
+            source = self._inject_after_contract_open(source, _FEE_ADMIN_MODIFIER)
+            source = self._inject_after_contract_open(source, _FEE_ADMIN_STATE)
+        source = self._inject_before_closing_brace(
+            source, _SET_FEE_RECIPIENT.format(
+                guard="onlyOwner" if has_owner else "onlyPlatformFeeAdmin"))
 
         # 5. Initialise in constructor
         init_code = _FEE_CONSTRUCTOR_INIT.format(
             fee_recipient=self._format_address(recipient),
             fee_bps=self._fee_bps,
-        )
+        ) + ("" if has_owner else _FEE_ADMIN_INIT)
         source = self._inject_into_constructor(source, init_code)
 
         # 6. Apply modifier to payable functions
@@ -199,6 +242,13 @@ class RevenueEnforcer:
             pos = match.end()
             return source[:pos] + "\n" + snippet + source[pos:]
         return source
+
+    @staticmethod
+    def _has_owner_modifier(source: str) -> bool:
+        """Does *source* bring an ``onlyOwner`` of its own — by inheriting
+        Ownable or by declaring the modifier?"""
+        return bool(re.search(r"\bis\b[^{]*\bOwnable\b", source)
+                    or re.search(r"\bmodifier\s+onlyOwner\b", source))
 
     @staticmethod
     def _declare_fee_token_interface(source: str) -> str:
@@ -254,10 +304,14 @@ class RevenueEnforcer:
             r"(function\s+\w+\s*\([^)]*\)\s+(?:\w+\s+)*)(payable)(\s+)"
         )
         def replacer(m: re.Match) -> str:
-            # Only add if not already present
-            full_line = m.group(0)
-            if "collectPlatformFee" in full_line:
-                return full_line
+            # Only add if not already present. The match ends at the
+            # whitespace AFTER `payable`, and the modifier is written after
+            # that whitespace — so checking the match alone never saw one
+            # already there, and re-running this on injected source, or on
+            # source that already carried the modifier, charged the fee twice.
+            # The text that follows the match is where it would be.
+            if m.string[m.end():].lstrip().startswith("collectPlatformFee"):
+                return m.group(0)
             return f"{m.group(1)}{m.group(2)} collectPlatformFee(msg.value){m.group(3)}"
         return pattern.sub(replacer, source)
 

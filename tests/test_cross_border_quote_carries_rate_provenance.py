@@ -10,8 +10,8 @@ producer attached:
 
 Every time the honest datum existed ONE CALL UP and was dropped at the boundary
 the user reads. `conversion.get_rate` returns `{"rate": ..., "source": ...}` where
-source is "identity" / "cache" / an oracle name / **"fallback"**. `get_quote`
-read `rate` and discarded `source`.
+source is "identity" / an oracle name / **"fallback"** (a cached rate reports the
+source it was cached from). `get_quote` read `rate` and discarded `source`.
 
 THE AGGRAVATOR IS THAT FALLBACK IS THE SHIPPED PATH. Measured: the oracle carries
 NO FIAT PAIRS AT ALL in this deployment — BTC/USD, DAI/USD, ETH/USD, LINK/USD,
@@ -72,13 +72,20 @@ async def test_an_identity_rate_is_not_flagged_as_unsourced(service):
 
 
 async def test_a_cached_rate_keeps_its_own_provenance(service):
-    """The second call for a pair is served from cache. Cache must report as
-    cache — collapsing it into "fallback" would misreport a rate that WAS
-    sourced, which is the same defect facing the other way."""
-    await service.get_quote(100.0, "USD", "EUR")
+    """The second call for a pair is served from cache, and a cached rate
+    reports where it CAME from. This used to accept "cache" as the source,
+    reasoning that collapsing it into "fallback" would misreport a rate that
+    was sourced; but "cache" is not in the non-market set, so a fallback
+    constant served from cache read as a market rate with no disclosure, on
+    every second quote inside the TTL. The original source, kept with the
+    cached rate, is right in both directions."""
+    first = await service.get_quote(100.0, "USD", "EUR")
     second = await service.get_quote(100.0, "USD", "EUR")
 
-    assert second["rate_source"] in ("cache", "fallback")
+    assert first["rate_source"] == "fallback"
+    assert second["rate_source"] == "fallback"
+    assert second["rate_is_market"] is False
+    assert "INDICATIVE ONLY" in second["rate_disclosure"]
 
 
 async def test_the_disclosure_is_absent_rather_than_empty_when_sourced(service):

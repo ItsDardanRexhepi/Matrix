@@ -69,9 +69,14 @@ except (ImportError, ModuleNotFoundError):
     #       nothing enforcing. That is the NEW-18 silent-fallback shape sitting
     #       on the security boundary.
     #
-    # Only the first is caught now. Anything else propagates, because a
-    # security core that cannot load should stop the process, not quietly
-    # remove itself.
+    # Only these two exception types are caught now. Anything else
+    # propagates, because a security core that cannot load should stop the
+    # process, not quietly remove itself. Not every broken install is caught
+    # by that, which this used to imply: an installed package that fails to
+    # load with an ImportError of its own — a missing dependency, a name it
+    # cannot import — is indistinguishable here from "not installed" and
+    # degrades to the no-op. The gateway refuses to start on the no-op in
+    # production (MATRIX_ENV=production); elsewhere it runs, and says so.
     SECURITY_BACKEND = "noop"
     _private_agent_access = None
     # The no-op records nothing about any caller; it names a caller the

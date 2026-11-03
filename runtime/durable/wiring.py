@@ -252,6 +252,14 @@ class NotRecorded(RuntimeError):
     """Mode on could not record a signing call before making it; it was not made."""
 
 
+
+#: The summary of the event the public feed's ingest answers for an entry it
+#: declined because it is not public (runtime/social/feed_engine.py,
+#: NOT_PUBLISHED_SUMMARY, which a test holds equal to this). Written out here
+#: because this package imports nothing of the platform's feed.
+FEED_DECLINED_SUMMARY = "not published: the item is not public"
+
+
 class DurableEngine:
     """One per gateway process, installed by the gateway at startup."""
 
@@ -587,11 +595,18 @@ class DurableEngine:
         """Deliver one feed entry through *feed_engine*'s ``ingest``, the call
         the dispatcher's task made. Once: the feed engine answers a failure it
         swallowed with an event that has no summary, and cannot say whether the
-        row was stored before it failed, so that answer is given up, not retried."""
+        row was stored before it failed, so that answer is given up, not retried.
+        An entry the feed declines because it is not public is answered with
+        an event whose summary is ``FEED_DECLINED_SUMMARY``: it reached the
+        feed and the feed said no, so it is delivered, and recorded as
+        ``not_public`` rather than as ingested."""
         async def deliver(entry: dict) -> outbox.Delivery:
             event = await feed_engine.ingest(**entry)
-            if getattr(event, "summary", None) == "":
+            summary = getattr(event, "summary", None)
+            if summary == "":
                 return outbox.Delivery(outbox.GIVEN_UP, "feed_reported_failure")
+            if summary == FEED_DECLINED_SUMMARY:
+                return outbox.Delivery(outbox.DELIVERED, "not_public")
             return outbox.Delivery(outbox.DELIVERED, "ingested")
         return deliver
 

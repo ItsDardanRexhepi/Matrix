@@ -65,7 +65,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "deed_contract": "",
 }
 
-# Escrow state machine — the ONLY legal transitions. Everything else raises.
+# Escrow state machine — the ONLY legal transitions. Everything else raises:
+# every state change goes through `_move`, which asserts against this table
+# before the store writes it. (Four call sites used to write the store
+# directly, and one of them "transitioned" initiated -> initiated to attach a
+# ref, appending a duplicate history entry; attaching a ref is not a
+# transition and no longer writes one.)
 VALID_TRANSITIONS: dict[str, frozenset[str]] = {
     "initiated": frozenset({"funds_locked", "refunded"}),
     "funds_locked": frozenset({"settled", "refunded"}),
@@ -462,11 +467,16 @@ class RealEstateService:
             amount_wei=prop["price_wei"], state="initiated",
             readiness_snapshot=readiness,
         )
-        # Bind the exact readiness snapshot into the on-chain condition: the
-        # bytes32 the contract requires (non-zero) is the readiness digest, so
-        # the settlement is cryptographically tied to THIS verdict and the
-        # contract's "no readiness attestation" guard passes only for a real
-        # one. The EAS attestation of the same snapshot is recorded off-chain.
+        # Put the exact readiness snapshot into the on-chain condition: the
+        # bytes32 the contract requires is the readiness digest, in the
+        # calldata this method prepares. What the CONTRACT checks is only
+        # that the value is non-zero — `require(readinessAttestation !=
+        # bytes32(0))` — and the buyer sends the transaction, so a buyer who
+        # writes their own calldata can put any non-zero bytes32 there and
+        # settle with no readiness verdict at all. This comment used to say
+        # the guard "passes only for a real one"; it does not, and nothing
+        # on-chain ties the settlement to this verdict. The EAS attestation of
+        # the same snapshot is recorded off-chain.
         readiness_digest = hashlib.sha256(
             json.dumps(readiness, sort_keys=True).encode()).digest()
         snapshot_ref, snapshot_status = await self._attest(
@@ -487,9 +497,11 @@ class RealEstateService:
             # accepts it; it commits the settlement to this exact snapshot.
         )
         # Record the snapshot attestation outcome on the escrow (honest even
-        # when unattested — the ref field carries the status string).
-        await self._store.transition_escrow(
-            escrow["id"], new_state="initiated",
+        # when unattested — the ref field carries the status string). An
+        # annotation, not a transition: the state stays `initiated` and no
+        # history entry is written.
+        await self._store.annotate_escrow(
+            escrow["id"],
             attestation_refs={"readiness_snapshot": snapshot_ref or snapshot_status})
 
         await self._store.update_property(property_id, status="under_escrow")
@@ -531,11 +543,15 @@ class RealEstateService:
     async def confirm_settlement(self, escrow_id: str, tx_hash: str) -> dict:
         """Verify the buyer-submitted settlement ON-CHAIN and only then advance
         the state machine. "Verify" means the receipt genuinely settled THIS
-        escrow: status success AND emitted from OUR PropertyEscrow contract AND
-        carrying a Settled(escrowId=…) log whose id matches this escrow. An
-        arbitrary successful tx (e.g. a 1-wei self-transfer) is NOT accepted —
-        that would fabricate a sale. A failed / unmined / unrelated receipt
-        changes nothing and says so."""
+        escrow (`_receipt_settles_escrow`): status success, a Settled log from
+        OUR PropertyEscrow contract naming this escrow's id, buyer, seller,
+        amount, deed token and readiness digest, and the Transfer of that deed
+        token from the seller to the buyer by OUR PropertyDeed contract. An
+        arbitrary successful tx (e.g. a 1-wei self-transfer) is NOT accepted,
+        and neither is a real settlement of other terms under this escrow's id
+        (a 1-wei listing, another of the seller's deeds) — either would
+        fabricate a sale. A failed / unmined / unrelated receipt changes
+        nothing and says so."""
         self._require_enabled()
         # Atomic concurrency claim (no await between check and add) — two
         # simultaneous confirms for one escrow can't both walk the machine.
@@ -561,6 +577,8 @@ class RealEstateService:
                                " live RPC — the escrow state is unchanged.",
                 })
             escrow_addr = self.config.get("escrow_contract", "")
+            deed_addr = self.config.get("deed_contract", "")
+            prop = await self._store.get_property(escrow["property_id"])
 
             try:
                 receipt = w3.eth.get_transaction_receipt(tx_hash)
@@ -579,18 +597,28 @@ class RealEstateService:
                         "tx_hash": tx_hash}
 
             # THE ANTI-FAKE CHECK: the receipt must prove THIS escrow settled on
-            # OUR contract — a successful-but-unrelated tx is rejected.
-            if not self._receipt_settles_escrow(receipt, escrow, escrow_addr, w3):
+            # OUR contract — a successful-but-unrelated tx is rejected, and so
+            # is a settlement of other terms under this escrow's id.
+            if not self._receipt_settles_escrow(receipt, escrow, escrow_addr, w3,
+                                                prop=prop, deed_addr=deed_addr):
                 return {"status": "not_settlement", "message":
                         "the transaction succeeded but is NOT a settlement of"
                         " this escrow on the PropertyEscrow contract (no"
-                        " matching Settled event) — escrow state unchanged.",
+                        " Settled event with this escrow's id, buyer, seller,"
+                        " amount, deed token and readiness digest, or no"
+                        " transfer of this property's deed to the buyer) —"
+                        " escrow state unchanged.",
                         "tx_hash": tx_hash}
 
-            # Genuinely settled: the atomic contract op means lock + settle both
-            # happened in this one tx — walk the machine truthfully.
-            await self._store.transition_escrow(
-                escrow_id, new_state="funds_locked", tx_hashes={"lock": tx_hash})
+            # Genuinely settled. Walk the machine truthfully — including WHICH
+            # transaction locked the funds. `lockAndSettle` locks and settles
+            # in one transaction; the two-step `settle` settles funds another
+            # transaction locked, and its receipt carries the same Settled
+            # event. This used to record this hash as the lock either way.
+            lock_hash = (tx_hash if self._receipt_locks_escrow(receipt, escrow, escrow_addr)
+                         else "earlier transaction, not identified")
+            await self._move(
+                escrow, "funds_locked", tx_hashes={"lock": lock_hash})
             settlement_ref, settlement_status = await self._attest(
                 schema="document_verification",
                 data={
@@ -602,12 +630,11 @@ class RealEstateService:
                 },
                 recipient=escrow["buyer_wallet"],
             )
-            await self._store.transition_escrow(
-                escrow_id, new_state="settled",
+            settled = await self._move(
+                {**escrow, "state": "funds_locked"}, "settled",
                 tx_hashes={"settle": tx_hash},
                 attestation_refs={"settlement": settlement_ref or settlement_status})
-            final = await self._store.transition_escrow(
-                escrow_id, new_state="offchain_recording_pending")
+            final = await self._move(settled, "offchain_recording_pending")
             await self._store.update_property(escrow["property_id"], status="sold")
             return {
                 "status": "settled",
@@ -621,44 +648,87 @@ class RealEstateService:
             self._settling.discard(escrow_id)
 
     def _receipt_settles_escrow(self, receipt, escrow: dict, escrow_addr: str,
-                                w3) -> bool:
-        """True IFF the receipt carries a Settled event from OUR PropertyEscrow
-        contract whose indexed escrowId matches this escrow. This is what makes
-        confirm_settlement impossible to fool with an unrelated successful tx.
+                                w3, *, prop: dict | None, deed_addr: str) -> bool:
+        """True IFF the receipt proves THIS escrow settled on OUR contracts.
+
+        The escrow id PropertyEscrow is keyed on is sha256(escrow['id']) — the
+        value the settlement calldata was built with in execute_purchase — and
+        anyone who knows the platform's escrow id can compute it. The contract
+        binds a lock to the listing the deed's OWNER wrote under that id, so a
+        seller can list under it at 1 wei, or list another of their deeds, and
+        the buyer's settlement of that listing emits a Settled log on our
+        contract with this escrow's id and buyer. Matching the id and the
+        buyer is therefore not enough; every field the event carries has to be
+        this escrow's:
 
         Settled(bytes32 indexed escrowId, address indexed buyer,
                 address indexed seller, uint256 amount, uint256 deedTokenId,
                 bytes32 readinessAttestation)
-        → topic0 = keccak(signature); topic1 = escrowId (the bytes32 itself).
-        The escrowId is sha256(escrow['id']) — the exact value the settlement
-        calldata was built with in execute_purchase.
+        → from the escrow contract, exactly four topics (the event, this
+          escrow's id, its buyer, the property's seller) and a data word that
+          decodes to this escrow's amount, the property's deed token and the
+          sha256 of this escrow's readiness snapshot — the digest
+          execute_purchase put in the calldata.
+
+        The event does not name the deed contract, so the receipt must also
+        carry the deed's own Transfer(seller, buyer, deedTokenId) from OUR
+        PropertyDeed contract, which `_settle` causes in the same transaction.
+        Anything missing, different or undecodable is not a settlement.
         """
-        if is_placeholder_value(escrow_addr):
+        if is_placeholder_value(escrow_addr) or is_placeholder_value(deed_addr):
+            return False
+        if not prop or prop.get("deed_token_id") in (None, ""):
+            return False
+        snapshot = escrow.get("readiness_snapshot")
+        if not snapshot:
             return False
         try:
+            from eth_abi import decode as abi_decode
             from web3 import Web3
-            want_addr = Web3.to_checksum_address(escrow_addr)
-            settled_topic0 = Web3.keccak(
-                text="Settled(bytes32,address,address,uint256,uint256,bytes32)")
+
+            def _bytes(value) -> bytes:
+                if isinstance(value, str):
+                    return bytes.fromhex(value[2:] if value.startswith("0x") else value)
+                return bytes(value)
+
+            def _address_topic(address: str) -> bytes:
+                return bytes(12) + Web3.to_bytes(
+                    hexstr=Web3.to_checksum_address(address))
+
+            want_escrow_contract = Web3.to_checksum_address(escrow_addr)
+            want_deed_contract = Web3.to_checksum_address(deed_addr)
+            settled_topic0 = bytes(Web3.keccak(
+                text="Settled(bytes32,address,address,uint256,uint256,bytes32)"))
+            transfer_topic0 = bytes(Web3.keccak(
+                text="Transfer(address,address,uint256)"))
             want_escrow_id = hashlib.sha256(escrow["id"].encode()).digest()
-            want_buyer_topic = bytes(12) + Web3.to_bytes(
-                hexstr=Web3.to_checksum_address(escrow["buyer_wallet"]))
+            want_buyer = _address_topic(escrow["buyer_wallet"])
+            want_seller = _address_topic(prop["seller_wallet"])
+            want_amount = int(escrow["amount_wei"])
+            want_token = int(prop["deed_token_id"])
+            want_attestation = hashlib.sha256(
+                json.dumps(snapshot, sort_keys=True).encode()).digest()
+
+            settled = deed_moved = False
             for log in receipt.get("logs", []):
                 log_addr = log.get("address")
-                if log_addr is None or Web3.to_checksum_address(log_addr) != want_addr:
+                if log_addr is None:
                     continue
-                topics = [bytes(t) for t in log.get("topics", [])]
-                if len(topics) < 3:
-                    continue
-                if topics[0] != bytes(settled_topic0):
-                    continue
-                if topics[1] != want_escrow_id:
-                    continue
-                # buyer is indexed (topic2) — must be the escrow's buyer
-                if topics[2] != want_buyer_topic:
-                    continue
-                return True
-            return False
+                emitter = Web3.to_checksum_address(log_addr)
+                topics = [_bytes(t) for t in log.get("topics", [])]
+                if emitter == want_escrow_contract and topics[:1] == [settled_topic0]:
+                    if topics != [settled_topic0, want_escrow_id, want_buyer, want_seller]:
+                        continue
+                    amount, token, attestation = abi_decode(
+                        ["uint256", "uint256", "bytes32"], _bytes(log.get("data") or b""))
+                    if (amount, token, bytes(attestation)) == (
+                            want_amount, want_token, want_attestation):
+                        settled = True
+                elif emitter == want_deed_contract and topics == [
+                        transfer_topic0, want_seller, want_buyer,
+                        want_token.to_bytes(32, "big")]:
+                    deed_moved = True
+            return settled and deed_moved
         except Exception:
             # Any decoding failure is fail-closed: we do NOT settle on doubt.
             logger.warning("settlement receipt verification failed closed",
@@ -674,9 +744,8 @@ class RealEstateService:
         escrow = await self._store.get_escrow(escrow_id)
         if escrow is None:
             raise ValueError(f"escrow not found: {escrow_id}")
-        self._assert_transition(escrow["state"], "complete")
-        updated = await self._store.transition_escrow(
-            escrow_id, new_state="complete",
+        updated = await self._move(
+            escrow, "complete",
             attestation_refs={"recording_reference": recording_reference or "unreferenced"})
         return updated
 
@@ -688,9 +757,8 @@ class RealEstateService:
         escrow = await self._store.get_escrow(escrow_id)
         if escrow is None:
             raise ValueError(f"escrow not found: {escrow_id}")
-        self._assert_transition(escrow["state"], "refunded")
-        updated = await self._store.transition_escrow(
-            escrow_id, new_state="refunded",
+        updated = await self._move(
+            escrow, "refunded",
             attestation_refs={"refund_reason": reason or "unspecified"})
         await self._store.update_property(escrow["property_id"], status="listed")
         return updated
@@ -701,6 +769,33 @@ class RealEstateService:
         if escrow is None:
             raise ValueError(f"escrow not found: {escrow_id}")
         return escrow
+
+    async def _move(self, escrow: dict, new_state: str, **changes) -> dict:
+        """The one way an escrow changes state: asserted, then written."""
+        self._assert_transition(escrow["state"], new_state)
+        return await self._store.transition_escrow(
+            escrow["id"], new_state=new_state, **changes)
+
+    def _receipt_locks_escrow(self, receipt, escrow: dict, escrow_addr: str) -> bool:
+        """Does the receipt ALSO carry this escrow's FundsLocked event from our
+        contract — i.e. did this transaction lock the funds it settled?"""
+        try:
+            from web3 import Web3
+            want_addr = Web3.to_checksum_address(escrow_addr)
+            locked_topic0 = bytes(Web3.keccak(
+                text="FundsLocked(bytes32,address,address,uint256,uint64)"))
+            want_escrow_id = hashlib.sha256(escrow["id"].encode()).digest()
+            for log in receipt.get("logs", []):
+                addr = log.get("address")
+                if addr is None or Web3.to_checksum_address(addr) != want_addr:
+                    continue
+                topics = [bytes(t) for t in log.get("topics", [])]
+                if len(topics) >= 2 and topics[0] == locked_topic0 \
+                        and topics[1] == want_escrow_id:
+                    return True
+        except Exception:  # noqa: BLE001 — unknown is "not identified"
+            logger.debug("lock-event check failed", exc_info=True)
+        return False
 
     def _assert_transition(self, current: str, target: str) -> None:
         allowed = VALID_TRANSITIONS.get(current, frozenset())

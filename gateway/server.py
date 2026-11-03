@@ -198,16 +198,14 @@ def _apply_env_overrides(config: dict) -> dict:
     # `enabled: false` in the config still wins, as for every channel.
     apns_path = os.environ.get("APNS_AUTH_KEY_P8_PATH")
     if apns_path:
+        from runtime.config.validation import read_mounted_secret
         ios = config.setdefault("notifications", {}).setdefault("ios_push", {})
-        try:
-            with open(apns_path, "r", encoding="utf-8") as fh:
-                ios["auth_key_p8"] = fh.read()
-        except (OSError, ValueError):
-            # OSError: missing / a directory (bind-mount footgun) / no perm.
-            # ValueError (incl. UnicodeDecodeError): a binary/DER .p8 or garbage
-            # file. Either way push stays unconfigured — never crash config load.
-            logger.warning("APNS_AUTH_KEY_P8_PATH set (%s) but not a readable "
-                           "UTF-8 key — push stays unconfigured.", apns_path)
+        # One reader for the mount, shared with enforce_env_only_secrets.
+        # Missing / a directory (bind-mount footgun) / no permission / a
+        # binary or DER .p8: push stays unconfigured — never crash config load.
+        mounted = read_mounted_secret("APNS_AUTH_KEY_P8_PATH")
+        if mounted is not None:
+            ios["auth_key_p8"] = mounted
         for env_var, key in (("APNS_KEY_ID", "key_id"),
                              ("APNS_TEAM_ID", "team_id"),
                              ("APNS_BUNDLE_ID", "bundle_id")):
@@ -221,8 +219,16 @@ def load_config() -> dict:
     """Load, env-override, enforce secret-env rules, and validate the config.
 
     In **production mode** (``MATRIX_ENV=production``):
-      - Secrets must come from environment variables. Any plaintext
-        copies in the JSON file are stripped.
+      - Secrets must come from environment variables, or from a mounted
+        file where the secret is a file (the APNs ``.p8``, named by
+        ``APNS_AUTH_KEY_P8_PATH``). A plaintext copy in the JSON file of every
+        secret ``runtime.config.validation`` names — each ``SECRET_FIELDS``
+        entry and each ``FILE_MOUNTED_SECRETS`` entry — is stripped. A
+        secret-shaped key it does not name is not stripped; it is a
+        validation error, which aborts startup. This used to say "any
+        plaintext copies are stripped" while the one key this module itself
+        writes from a mount, the APNs signing key, was counted as covered and
+        never stripped.
       - Validation errors abort startup.
       - Missing required env secrets abort startup.
 
@@ -1185,9 +1191,16 @@ class GatewayServer:
         id that was the only handle on it. If the push-token or session removal fails the answer is
         503 too — a deletion that left the account's session token valid is not
         a deletion, and the client is told so rather than shown
-        ``{"success": true}``. Apple token revocation runs only when
-        auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
-        deletion still succeeds and revocation is skipped with a WARNING."""
+        ``{"success": true}``.
+
+        APPLE TOKEN REVOCATION IS NOT IMPLEMENTED. This said it "runs only when
+        auth.apple.{team_id,key_id,private_key_p8} are configured", which is a
+        two-branch sentence for a path with one branch: nothing in this tree
+        builds a client-secret JWT or calls appleid.apple.com/auth/revoke, on
+        either setting. The local erasure above is real and complete; the
+        user's Apple token stays live, App Store 5.1.1(v) is unmet, and the
+        operator is warned on both paths. See gateway/apple_auth.py for what
+        building it would take."""
         from gateway.apple_auth import apple_revocation_configured
         # The iOS app presents its Apple session as ``Authorization: Bearer``
         # (client :786); this handler read only ``X-Wallet-Session``, so the
@@ -1346,16 +1359,34 @@ class GatewayServer:
                 return web.json_response(
                     {"success": False, "error": "storage failure"}, status=503)
 
-        # Apple revocation stays a WARNING rather than a failure: it is a
-        # documented credential gate, the local deletion genuinely did complete,
-        # and saying so in the response would tell any caller how this
-        # deployment is configured — the targeting signal RUN-7 took out of
-        # /ready. The operator is told; the caller is told the truth about what
-        # this server holds, which is nothing.
+        # Apple revocation stays a WARNING rather than a failure: the local
+        # deletion genuinely did complete, and saying more in the response
+        # would tell any caller how this deployment is configured — the
+        # targeting signal RUN-7 took out of /ready. The operator is told; the
+        # caller is told the truth about what this server holds, which is
+        # nothing.
+        #
+        # THE WARNING USED TO FIRE ON ONE PATH. It was gated on
+        # `not apple_revocation_configured(...)`, which reads as "configured
+        # deployments revoke and say nothing about it" — and nothing in this
+        # tree revokes an Apple token on either path (gateway/apple_auth.py,
+        # module docstring). So the operator who filled in team_id, key_id and
+        # private_key_p8 precisely to meet App Store 5.1.1(v) got silence, and
+        # silence is exactly what a working revocation would also look like
+        # from here. Both paths say what happened, which is nothing, and which
+        # of the two gaps this deployment is in.
         if not apple_revocation_configured(self.config):
             logger.warning(
-                "Account deleted locally; Apple token revocation SKIPPED "
-                "(auth.apple.team_id/key_id/private_key_p8 not configured).")
+                "Account deleted locally; Apple token revocation is NOT "
+                "implemented, and auth.apple.team_id/key_id/private_key_p8 "
+                "are not configured either. The user's Apple token stays live.")
+        else:
+            logger.warning(
+                "Account deleted locally; Apple token revocation is NOT "
+                "implemented. auth.apple.team_id/key_id/private_key_p8 are "
+                "configured and unused — no client-secret JWT is built and "
+                "appleid.apple.com/auth/revoke is never called. App Store "
+                "5.1.1(v) is unmet and the user's Apple token stays live.")
 
         import datetime
         return web.json_response({
@@ -1956,7 +1987,9 @@ class GatewayServer:
         """GET /social/feed/stream — SSE stream of live feed events.
 
         Uses the :class:`EventBroadcaster` to push new
-        ``feed.new_event`` broadcasts to connected clients.
+        ``feed.new_event`` broadcasts to connected clients: each one is a row
+        the public feed stored, published by ``SocialFeedEngine`` as it stores
+        it (``FEED_STREAM_EVENT``).
         """
         # Refuse BEFORE preparing the response, as /api/v1/events/stream does:
         # once a 200 text/event-stream is out, a rejection can only travel as a
@@ -1976,12 +2009,13 @@ class GatewayServer:
         # is `async` and was never awaited; and BroadcasterCapacityError — which
         # the method's own docstring tells callers to translate — was unhandled.
         from gateway.event_broadcaster import BroadcasterCapacityError
+        from runtime.social.feed_engine import FEED_STREAM_EVENT
 
         peer = request.remote or "unknown"
         try:
             sub = await broadcaster.register(
                 remote_ip=peer,
-                types={"feed.new_event"},
+                types={FEED_STREAM_EVENT},
             )
         except BroadcasterCapacityError as exc:
             # Per the broadcaster's contract: global cap -> 503, per-IP -> 429
@@ -2568,9 +2602,13 @@ class GatewayServer:
                 logger.warning("Failed to start backup loop: %s", exc)
 
         # ── Initialize platform subsystems ───────────────────────────
-        # Stripe subscriptions live in MTRX iOS (Apple IAP). This backend
-        # only initializes the plugin marketplace, A2A, social, badges,
-        # certification, and professional services.
+        # Subscriptions are bought through Apple IAP in MTRX iOS; there is no
+        # Stripe billing here. The block below initializes the plugin
+        # marketplace, A2A and social; the next one badges, certification and
+        # protocol referrals. That is not everything startup does — Morpheus,
+        # the auth and backup loops, the social feed engine and the push-token
+        # store are all started in this method too — and "professional
+        # services", which this comment used to list, are initialized nowhere.
         try:
             from runtime.marketplace.plugin_store import PluginMarketplace
             from runtime.a2a.marketplace import A2AMarketplace
@@ -2608,6 +2646,10 @@ class GatewayServer:
             from runtime.social.feed_engine import SocialFeedEngine
             db = self.react_loop.memory.db
             self.social_feed_engine = SocialFeedEngine(db)
+            # What the engine stores it publishes on the gateway's
+            # broadcaster, which is what /social/feed/stream sends.
+            self.social_feed_engine.attach_broadcaster(
+                getattr(self, "event_broadcaster", None))
             # Attach to the ServiceDispatcher nested inside the ReAct
             # ToolDispatcher so state-modifying actions are automatically
             # published to the feed.
@@ -2920,23 +2962,27 @@ class GatewayServer:
         app.router.add_post("/certification/submit", self.handle_cert_submit)
         app.router.add_get("/certification/{cert_id}", self.handle_cert_verify)
 
+        # The broadcaster is the GATEWAY's, not the service table's. It used to
+        # be read off ServiceRoutes after registration succeeded, inside the
+        # try below — so a failure anywhere in that service registration
+        # left `self.event_broadcaster` unset, /social/feed/stream answering
+        # 503, and WebChatChannel — the one notification channel that needs no
+        # external credentials because it IS the gateway — permanently
+        # unavailable. Owning it here and handing it down means the two
+        # in-gateway surfaces that depend on it do not depend on the service
+        # table registering.
+        from gateway.event_broadcaster import EventBroadcaster
+        self.event_broadcaster = EventBroadcaster()
+        from runtime.notifications.web_chat import WebChatChannel
+        WebChatChannel.set_broadcaster(self.event_broadcaster)
+
         # Register the blockchain service REST endpoints (gateway/service_routes.py)
         service_routes = None
         try:
             from gateway.service_routes import ServiceRoutes
-            service_routes = ServiceRoutes(self.config, metrics=self.metrics)
+            service_routes = ServiceRoutes(
+                self.config, broadcaster=self.event_broadcaster, metrics=self.metrics)
             service_routes.register_routes(app)
-            # Expose the broadcaster so other subsystems (bridge,
-            # service dispatchers, metrics) can push live events into
-            # /api/v1/events/stream.
-            self.event_broadcaster = service_routes.broadcaster
-            # Connect the WebChatChannel so /api/v1/events/stream
-            # receives notifications broadcast by the NotificationDispatcher.
-            try:
-                from runtime.notifications.web_chat import WebChatChannel
-                WebChatChannel.set_broadcaster(self.event_broadcaster)
-            except Exception as _exc:
-                logger.debug("Web chat broadcaster not wired: %s", _exc)
             logger.info("Service routes registered successfully.")
         except Exception as e:
             logger.warning("Service routes registration skipped: %s", e)

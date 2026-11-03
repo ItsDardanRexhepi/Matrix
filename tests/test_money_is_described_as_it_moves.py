@@ -857,9 +857,9 @@ def test_each_payments_offer_that_names_a_stablecoin_transfer_says_the_ledger_re
     """Course 01's expected answer had Trinity list "Recording a cross-border
     payment or a stablecoin transfer" as something the platform can do. No
     deployment records a stablecoin transfer: the ledger starts empty, and its
-    one funding helper, set_balance, refuses to run outside the tests unless
-    MATRIX_ALLOW_TEST_MINT is 1, so every transfer is refused for insufficient
-    balance. Trinity's prompt and the chat welcome say so; each **Payments**
+    one funding helper, set_balance, refuses to run outside a process running
+    pytest, and no environment switch opens it, so every transfer is refused for
+    insufficient balance. Trinity's prompt and the chat welcome say so; each **Payments**
     item in a public text that names a stablecoin transfer is held to it."""
     import sys
 
@@ -869,13 +869,14 @@ def test_each_payments_offer_that_names_a_stablecoin_transfer_says_the_ledger_re
     assert not problems, "re-derive this check: " + "; ".join(problems)
     for name in ("PYTEST_CURRENT_TEST", "MATRIX_ALLOW_TEST_MINT"):
         monkeypatch.delenv(name, raising=False)
+    pytest_module = sys.modules["pytest"]
     monkeypatch.delitem(sys.modules, "pytest")
     try:
         StablecoinService(_config()).set_balance(_A, "USDC", 5)
         funded_outside = True
     except RuntimeError:
         funded_outside = False
-    monkeypatch.setenv("MATRIX_ALLOW_TEST_MINT", "1")
+    monkeypatch.setitem(sys.modules, "pytest", pytest_module)
     allowed = StablecoinService(_config())
     allowed.set_balance(_A, "USDC", 5)  # the gate can say yes, so its no means something
     assert not funded_outside, "set_balance funds the ledger outside the tests now; re-derive this check"

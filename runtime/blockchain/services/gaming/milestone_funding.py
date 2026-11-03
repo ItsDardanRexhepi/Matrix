@@ -1,7 +1,12 @@
 """
 MilestoneFunding — fund game development in stages.
 
-Funds are released only when milestones are verified with proof.
+A milestone is marked released when the caller supplies a non-empty proof
+for it, in order. The proof is RECORDED, not verified — nothing here checks
+what it says, and the party who benefits from the release is free to write
+it (the shape fundraising's NEW-73 closed). And "released" is a ledger entry:
+no funds are held or transferred by this module. This used to say "funds are
+released only when milestones are verified with proof".
 """
 
 from __future__ import annotations

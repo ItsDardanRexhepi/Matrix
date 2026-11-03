@@ -207,11 +207,14 @@ class SecuritiesExchangeService:
         # trade asserted total_value=1000.0 for a payment that never occurred.
         #
         # THERE IS NO CONSIDERATION LEG ANYWHERE IN THIS DOMAIN. Grepped for
-        # payment/settle/escrow/debit/credit across all five files: the only hits
-        # are the word "accredited". `ExchangeContract.__init__` takes only
-        # config and holds order books — it has NO reference to `self._balances`,
-        # so the matching engine is structurally incapable of transferring what
-        # it matches. There is no settlement path to delegate to.
+        # payment/settle/escrow/debit/credit across all five files: in code, the
+        # hits are the word "accredited" and the fields and text that say
+        # nothing settled (`settled: False`, "matched_unsettled", "no payment
+        # has moved") — none of them a payment. `ExchangeContract.__init__`
+        # takes only config and holds order books — it has NO reference to
+        # `self._balances`, so the matching engine is structurally incapable of
+        # transferring what it matches. There is no settlement path to
+        # delegate to.
         #
         # WORSE THAN A FABRICATED SUCCESS. The NEW-57 payment stubs moved nothing
         # in either direction, so the lie was symmetric — nobody received

@@ -18,17 +18,17 @@ What you can do on The Matrix:
 - Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
 - Create NFTs and register your creative work with an on-chain royalty that every marketplace honouring the ERC-2981 standard pays you on resale
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
-- Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
+- Hold identity credentials and present only the claim values you choose — the other fields are replaced by commitments, though their names still show — and have them checked by the gateway that issued them (their proofs are digests that gateway records, not signatures anyone else can check)
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
 - Record payments today, and send them once settlement is built: the stablecoin-transfer capability records a transfer on its service's in-memory ledger with a tiered fee (0.1% or less by default), and the cross-border payment capability records the payment instruction, keeping no balances, with a flat 0.5% fee. Both answer `recorded_unsettled` — no value moves and no transaction is sent — and a cross-border payment the compliance check stops answers `compliance_hold`. The stablecoin ledger starts empty and only a test helper funds it, so a transfer there is refused for insufficient balance. Neo's own chain tools are a different path, and they do send: with a chain configured, and within the sponsorship policy, `payment` sends ETH or an ERC-20 token and `stablecoin` a stablecoin it lists for the network, each from the platform wallet's own balance and with no fee, and other Neo tools sign ETH and token transfers from that wallet too. Naming Neo takes the operator key on a gateway that has one set, and the Python SDK's `send_payment()` is a chat message asking Neo to use `payment` for ETH and `stablecoin` for a token. The fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
 - Build blockchain applications and games with less hand-written Solidity — write the contract as structured pseudocode, read the Solidity draft it generates, compile and deploy it yourself
 - Issue a tokenized security and list it on the exchange's order book, wherever the offering is lawfully available to you; buying one is refused until a settlement path exists (`buy_security` is catalogued `available: false`), so no trade settles on chain yet
-- Access parametric insurance that pays automatically when the data it watches meets the condition, no claims, no adjusters, no waiting
+- Access parametric insurance whose claims are decided by the data it watches, with no adjuster in between — the decision is automatic and recorded against the reserve today; paying it out on-chain is the part still being built
 - Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
 - Verify the complete history of any product, property, or asset before you buy it
 - Participate in governance and voting that is tamper-proof, transparent, and permanently recorded on-chain
-- Watch the platform come alive through the real-time social feed — every swap, mint and vote, ranked and streamed live
+- Watch the platform come alive through the real-time social feed — swaps, mints and votes as they settle, ranked and streamed live, and nothing that was shared with fewer people than everyone
 - And much more — open source, yours to run, yours to change
 
 The ones that write to a chain run against a blockchain you configure, and until you configure one, each says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't. The ones that keep their own records, like the payment ledgers above, run with or without a chain and say that nothing moved.
@@ -63,8 +63,8 @@ Getting there is not one commit, it is a long line of them, so I hold every one 
 
 - **Nothing here claims to do something it does not do.** When a claim in the code, the docs, or this README turns out to be untrue, the rule is to build it true where that is possible, and to correct it plainly where it is not. Both happen, and the correction is written down either way.
 - **A fix arrives with the check that catches it.** Every change ships with a test that fails against the old behaviour and passes against the new one, and I run it against the old behaviour first — a test that was never seen failing has not proven anything.
-- **A refusal is a feature.** When a service has no chain, it says `not_deployed`. When the platform cannot do a thing, it says so instead of returning something that looks like success. When a number is not known, you get a dash and not a plausible figure. Money is the place where a comforting lie costs the most, so that is the place it is least welcome.
-- **A record says what happened, not what was attempted.** Anything here that outlives the call — an attestation, a public feed entry, a claimable balance, a billing counter, an invoice — is written from the verdict the thing it called actually returned. A batch of attestations is judged one attestation at a time, and the ones that did not land go back on the queue instead of being reported as written — except one that was sent and that no receipt confirmed in time, which leaves the queue and is logged under its hash rather than sent again, because a second send could put two claims on the chain where one was made. A transfer is `routed` when a receipt confirms it, `failed` when the chain reverted it, and `pending` when it was broadcast and nobody knows yet — and the attestation follows the receipt, because a claim put on a public chain cannot be taken back. That holds for every action that sends a transaction, not only the ones whose service remembers to wait: sending is not the same event as the chain accepting it, so a bridge, a channel close or a liquidation that has only been broadcast, or a transfer whose receipt did not arrive in time, is recorded as a broadcast, with its hash, and is neither attested on-chain as done nor announced on the feed as done — and not recorded as declined either, because it may still be mined. A KYC credential is issued when its receipt confirms it. The list of methods that send is not kept by hand: a test finds every one of them from the send itself, not from the word it answers with, and fails if any could be recorded as settled without a receipt; a second finds every one that waits for its receipt and holds that it waits through the one helper whose three answers are driven, because the two that waited on their own called a wait that ran out a refusal. Settled, sent, and refused are three different things, and the record says which one it was rather than rounding the middle one to either side. A method that writes a record and calls no contract says `recorded_unsettled` and says plainly that nothing moved, rather than `purchased`, `claimed`, `minted` or `attested` — and that includes a marketplace purchase, a game-item trade, a tournament entry, a prediction-market bet and an AI model or training-data sale, which are written down here with nothing changing hands and are therefore neither attested as settled nor announced on the feed. Cashback you have not been paid stays claimable, and no dollar of it is covered by two open claims: pressing claim again with nothing new returns the same claim, and cashback earned since the last claim gets a claim of its own once it reaches the minimum claim amount. Until someone presses claim, and while what has accrued since the last claim is under that minimum, that cashback has no claim yet; it is still in the balance, and a returned claim states the whole balance outstanding. A subscription counts the charges that settled. A public feed entry announces the figure its record says moved, or none: a price is what something costs, not a payment, so a subscription nobody has been charged for, its cancellation and a new plan appear on the feed without a dollar value, and a record that says no value moved is never published beside one. A refusal a client has to act on names itself in a field, not only in a sentence: a second vote on the same proposal sent to the governance vote route is refused there with `error_code: already_voted`, so an app can say a vote is on record without reading prose, while the generic capability route still answers a second vote as a call that could not be completed, without that field. A social post goes to Twitter, Discord or both, and a post addressed to any other platform is refused when it is sent or scheduled rather than recorded as published after going nowhere. A job whose tools refused is not invoiced, and one whose tools disagree is not invoiced either — an outcome nobody established is not something to bill for, and it is not something to learn from. An agent service's advertised success rate is measured from its own finished jobs whose outcome was established, and a service with none has no rate rather than a perfect one; its rating and response time are still unmeasured defaults.
+- **A refusal is a feature.** When a service has no chain, it says `not_deployed`. When the platform cannot do a thing, it says so instead of returning something that looks like success. When a number is not known, you get a dash and not a plausible figure. Money is the place where a comforting lie costs the most, so that is the place it is least welcome. The same goes for a setting: a config value that would quietly switch off a guarantee this repository states — a feed weight of `NaN`, which slips past every "must be greater than zero" check ever written and then removes the cap it was supposed to bound — is refused out loud, because a guarantee you can turn off without being told is not one. The mirror of that rule holds too: a setting for something *optional* must not be able to stop the platform. Mistype the Sentry sample rate or the metrics interval and you lose the telemetry, with a line in the log saying which value was ignored and what was used instead — you do not lose the gateway.
+- **A record says what happened, not what was attempted.** Anything here that outlives the call — an attestation, a public feed entry, a claimable balance, a billing counter, an invoice — is written from the verdict the thing it called actually returned. A batch of attestations is judged one attestation at a time, and the ones that did not land go back on the queue instead of being reported as written — except one that was sent and that no receipt confirmed in time, which leaves the queue and is logged under its hash rather than sent again, because a second send could put two claims on the chain where one was made. A transfer is `routed` when a receipt confirms it, `failed` when the chain reverted it, and `pending` when it was broadcast and nobody knows yet — and the attestation follows the receipt, because a claim put on a public chain cannot be taken back. That holds for every action that sends a transaction, not only the ones whose service remembers to wait: sending is not the same event as the chain accepting it, so a bridge, a channel close or a liquidation that has only been broadcast, or a transfer whose receipt did not arrive in time, or a restaking send whose answer the node lost after it took the bytes, is recorded as a broadcast, with its hash, and is neither attested on-chain as done nor announced on the feed as done — and not recorded as declined either, because it may still be mined. A KYC credential would be issued only when its receipt confirms it, and for now no KYC credential is issued at all: the provider's review names an applicant, the credential names a wallet, and nothing the platform holds ties the two together, so the request is refused. The list of methods that send is not kept by hand: a test finds every one of them from the send itself, not from the word it answers with, and fails if any could be recorded as settled without a receipt; a second finds every one that waits for its receipt and holds that it waits through the one helper whose three answers are driven, because the two that waited on their own called a wait that ran out a refusal. Settled, sent, and refused are three different things, and the record says which one it was rather than rounding the middle one to either side. A method that writes a record and calls no contract says `recorded_unsettled` and says plainly that nothing moved, rather than `purchased`, `claimed`, `minted` or `attested` — and that includes a marketplace purchase, a game-item trade, a tournament entry, a prediction-market bet and an AI model or training-data sale, which are written down here with nothing changing hands and are therefore neither attested as settled nor announced on the feed. Cashback you have not been paid stays claimable, and no dollar of it is covered by two open claims: pressing claim again with nothing new returns the same claim, and cashback earned since the last claim gets a claim of its own once it reaches the minimum claim amount. Until someone presses claim, and while what has accrued since the last claim is under that minimum, that cashback has no claim yet; it is still in the balance, and a returned claim states the whole balance outstanding. A subscription counts the charges that settled. A public feed entry announces the figure its record says moved, or none: a price is what something costs, not a payment, so a subscription nobody has been charged for, its cancellation and a new plan appear on the feed without a dollar value, and a record that says no value moved is never published beside one. A refusal a client has to act on names itself in a field, not only in a sentence: a second vote on the same proposal sent to the governance vote route is refused there with `error_code: already_voted`, so an app can say a vote is on record without reading prose, while the generic capability route still answers a second vote as a call that could not be completed, without that field. A social post goes to Twitter, Discord or both, and a post addressed to any other platform is refused when it is sent or scheduled rather than recorded as published after going nowhere. A job whose tools refused is not invoiced, and one whose tools disagree is not invoiced either — an outcome nobody established is not something to bill for, and it is not something to learn from. An agent service's advertised success rate is measured from its own finished jobs whose outcome was established, and a service with none has no rate rather than a perfect one; its rating and response time are still unmeasured defaults.
 - **The security layer is described as it is.** With no enforcement core installed the platform runs in OBSERVE mode and announces it at boot, because "secured" is a claim like any other and has to be earned.
 - **This README is part of the software.** Each commit that changes what the platform can do updates this file in the same breath, so what you read here keeps matching what you would find if you went looking in the code.
 
@@ -103,7 +103,11 @@ curl http://localhost:18790/health        # {"status": "ok", ...}
 Need to add a notification channel later (Telegram, Discord, Slack, SMS,
 Email, WhatsApp, iOS push, webhook)? The setup can send each channel a test
 message; nothing in the gateway sends to them yet (no event is wired to the
-dispatcher).
+dispatcher). A channel calls itself configured only when every credential it
+needs is filled in with something that is not still the placeholder the
+example config ships: a config left holding the example's `YOUR_APNS_KEY_ID`
+reports the iOS push channel as unconfigured, not as ready. The one exception
+is the in-gateway web chat channel, which has no credential to fill in at all.
 
 ```bash
 python3 setup_communications.py           # interactive menu
@@ -217,7 +221,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,947 tests, run against the versions
+automated suite of 7,453 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -303,6 +307,14 @@ check behind it:
   agent's chain skills (balance, transaction lookup, gas estimate) read the
   chain this gateway is configured for, through the platform's shared
   connection; a `config` the model writes into a tool call is dropped
+- **A cheap-model setting does not reach an irreversible turn.** The
+  router classifies each turn, and a turn that names a transfer, a
+  deploy, a burn or a revoke takes the best model configured even when
+  the operator asked for the fast one everywhere. The tier reaches as
+  far as the provider config does — only Anthropic and Mythos declare
+  model tiers today, so an Ollama or OpenAI primary still runs the one
+  model it was given, and the README says that rather than implying a
+  tier that is not there
 - **Gas sponsorship is metered against what the EntryPoint can charge.**
   The per-identity daily cap the configuration documents is enforced
   before signing, over a durable ledger, and each request is priced at
@@ -631,10 +643,12 @@ check behind it:
   gives, instead of the platform quietly agreeing. An integration holding
   the operator key may name the user it acts for when no session is
   presented, and the record says the operator named that user rather than
-  labelling it the way it labels a signed-in session. The one deliberate
-  exception is a privacy action refused on the `/api/v1` path: its decline
-  is recorded with no actor and no claim, because naming who was refused
-  is exactly what the privacy exclusion exists to prevent
+  labelling it the way it labels a signed-in session. The deliberate
+  exceptions are a privacy action and an operation that is private by
+  what it is (an encrypted message, a credential, a KYC check, a
+  decentralized identifier's changes) refused on the `/api/v1` path: the
+  decline is recorded with no actor and no claim, because naming who was
+  refused is exactly what the privacy exclusion exists to prevent
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and
@@ -930,7 +944,17 @@ Some operations carry a platform fee: the platform contracts pay theirs
 to each contract's `platformFeeRecipient`, which `scripts/deploy_all.py`
 sets to the configured NeoSafe address. The fees the code is known to
 take, with their rates, are listed under Fees in `docs/blockchain.md`,
-checked against the code by a test that finds a fee by its name. Capabilities return
+checked against the code by a test that finds a fee by its name.
+
+Not every transaction you take part in is the platform's to sign: some
+capabilities prepare an unsigned transaction for your own wallet to sign
+and send (advanced governance, auctions), and your wallet pays that gas.
+Fees that are not gas are shown where they apply too: the marketplace
+records a platform fee on a sale (owed to the platform wallet; the sale
+moves nothing, so nothing collects it), and a DEX pool deducts its
+liquidity-provider fee from a swap's input.
+
+Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 

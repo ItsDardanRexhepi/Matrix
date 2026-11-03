@@ -473,10 +473,9 @@ FALSE_PHRASES = {
 # phrase. A new occurrence outside the quoted sentence still fails, so an
 # exemption covers the site that was read, not the file.
 TRUE_IN_CONTEXT = {
-    "runtime/blockchain/services/creator_platforms/service.py": [
-        ("an unauthenticated caller learns only that theirs was rejected",
-         "about what a refusal discloses, not about who the caller is"),
-    ],
+    # creator_platforms/service.py's "an unauthenticated caller learns only
+    # that theirs was rejected" was corrected (a matching guess is confirmed
+    # by the next gate's different answer) and no longer uses the word.
     "runtime/blockchain/services/governance/service.py": [
         ("bind `signer` to an authenticated caller (deferred register item 0",
          "a requirement on unwritten multisig approval, which raises today"),
@@ -484,11 +483,6 @@ TRUE_IN_CONTEXT = {
     "runtime/blockchain/services/staking/arming.py": [
         ("it must require: an authenticated caller identity bound to ``staker``",
          "a precondition on an arming condition that is not yet written"),
-    ],
-    "runtime/blockchain/services/kyc/service.py": [
-        ("Derived, not asserted. `_passed` is reachable only through the "
-         "screened-verification gate above",
-         "about the `passed` flag, not about an identity"),
     ],
     "tests/test_creator_platforms_guards.py": [
         ("what makes running authorization before the credential gates safe "

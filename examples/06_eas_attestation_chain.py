@@ -23,7 +23,10 @@ state-modifying action that settles, the same way; otherwise the attestation
 service refuses that record and the dispatcher logs the refusal. An attestation
 you ask for is refused when blockchain.eas_schema is not a well-formed bytes32
 UID, and it is metered by the gas sponsorship policy like any other operation,
-so where no sponsorship is configured the policy refuses it.
+so where no sponsorship is configured the policy refuses it. An
+attestation is revocable, so it is a record the platform signed, not a
+permanent one: what it proves is that this platform said the thing, with the
+data it was given, which here is sample data.
 
 Each step prints what the service answered, and a step counts as done only
 when the dispatcher reports that it happened (its call_outcome is "success").

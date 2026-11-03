@@ -384,6 +384,9 @@ class MilestoneVerification:
             return {
                 "approved": False,
                 "method": "community_vote",
+                # "Emitted on EVERY path" — this path and the tally below used
+                # to leave it out, so absent-from-False was indistinguishable.
+                "authority_available": True,
                 "reason": (
                     f"Insufficient votes: {len(votes)} of {self._min_voters} "
                     f"minimum required"
@@ -398,6 +401,7 @@ class MilestoneVerification:
         return {
             "approved": approval_rate >= self._vote_threshold,
             "method": "community_vote",
+            "authority_available": True,
             "approval_rate": approval_rate,
             "approvals": approvals,
             "rejections": len(votes) - approvals,

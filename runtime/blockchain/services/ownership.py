@@ -9,8 +9,11 @@ Three domains of this census have now needed the same check and none had it:
             because there was no identity to check against.
   domain 6  fundraising `verify_milestone` — took no caller identity, so the
             beneficiary could approve their own milestone and trigger release.
-  domain 7  insurance `file_claim` — takes no caller identity; anyone who
-            learns a policy id can claim against a stranger's policy.
+  domain 7  insurance `file_claim` — took no caller identity; anyone who
+            learned a policy id could claim against a stranger's policy. It
+            takes one now (caller / caller_identity, checked with
+            assert_owner against the policy holder) — the entry is kept as
+            the history of why this primitive exists, in the past tense.
 
 NEW-54 already recorded that ownership verification in this codebase is
 per-service, ad-hoc, and absent from the seam. Writing a fourth bespoke

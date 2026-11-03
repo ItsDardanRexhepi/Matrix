@@ -220,10 +220,10 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("execute_as_tba",          "Execute As TBA",             "nft_finance", "tba", "execute_as_tba",   protocol="erc6551", available=False),
 
     # ── Identity ───────────────────────────────────────────────────────────
-    _cap("create_did",              "Create DID",              "identity", "did_identity", "create_did",           feed_event="did_created"),
+    _cap("create_did",              "Create DID",              "identity", "did_identity", "create_did"),
     _cap("update_did",              "Update DID",              "identity", "did_identity", "update_did"),
     _cap("deactivate_did",          "Deactivate DID",          "identity", "did_identity", "deactivate_did"),
-    _cap("credential_issue",        "Issue Credential",        "identity", "did_identity", "issue_credential", feed_event="credential_issued"),
+    _cap("credential_issue",        "Issue Credential",        "identity", "did_identity", "issue_credential"),
     _cap("reputation_query",        "Query Reputation",        "identity", "did_identity", "query_reputation", state_modifying=False, uses_paymaster=False),
     _cap("start_kyc",               "Start KYC",               "identity", "kyc", "start_kyc",         protocol="sumsub", available=False),
     _cap("check_aml_risk",          "Check AML Risk",          "identity", "kyc", "check_aml_risk",    state_modifying=False, uses_paymaster=False, available=False),
@@ -369,11 +369,11 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("register_keeper_job",     "Register Keeper Job",     "oracles", "oracles_plus",   "register_keeper_job", protocol="chainlink_keepers", available=False),
 
     # ── Storage ────────────────────────────────────────────────────────────
-    _cap("ipfs_pin",                "Pin to IPFS",             "storage", "privacy", "pin_to_ipfs", feed_event="ipfs_content_pinned"),
+    _cap("ipfs_pin",                "Pin to IPFS",             "storage", "privacy", "pin_to_ipfs"),
     _cap("store_filecoin",          "Store on Filecoin",       "storage", "storage", "store_filecoin",   protocol="filecoin", available=False),
     _cap("ceramic_stream_create",   "Create Ceramic Stream",   "storage", "storage", "ceramic_stream_create", protocol="ceramic", available=False),
     _cap("orbit_db_write",          "Write to OrbitDB",        "storage", "storage", "orbit_db_write",   protocol="orbitdb", available=False),
-    _cap("decentralized_store",     "Decentralized Store",     "storage", "privacy", "decentralized_store", feed_event="file_stored"),
+    _cap("decentralized_store",     "Decentralized Store",     "storage", "privacy", "decentralized_store"),
 
     # ── Compute & DePIN ────────────────────────────────────────────────────
     _cap("submit_compute_job",      "Submit Compute Job",      "compute", "compute", "submit_compute_job", subcategory="compute", protocol="akash", available=False),

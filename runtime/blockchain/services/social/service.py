@@ -15,6 +15,7 @@ from typing import Any
 from .messaging import XMTPMessaging
 from .content_moderation import ContentModeration
 from .proof_sharing import ProofSharing
+from .visibility import is_public
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +55,16 @@ class SocialService:
         self.config = {**DEFAULT_CONFIG, **(config or {})}
         self._profiles: dict[str, dict] = {}
         self._feed_items: list[dict] = []
+        #: Communities, by id. `create_community` used to mint an id, set
+        #: status "active" and return the record WITHOUT storing it anywhere,
+        #: so the gateway's 200 named a community that existed nowhere and the
+        #: read legs are 501, which is where a caller would have found out.
+        #: Process-local, exactly like `_profiles` beside it: it does not
+        #: survive a restart and it is not shared between workers.
+        self._communities: dict[str, dict] = {}
         self.messaging = XMTPMessaging(self.config)
         self.moderation = ContentModeration(self.config)
-        self.proof_sharing = ProofSharing(self.config)
+        self.proof_sharing = ProofSharing(self.config, is_follower=self._is_follower)
         logger.info("SocialService initialised")
 
     async def create_profile(self, address: str, display_name: str, bio: str) -> dict:
@@ -204,14 +212,18 @@ class SocialService:
             "comments": [],
         }
 
-        self._feed_items.append(feed_item)
-        profile["shared_proofs"].append(feed_item_id)
-
-        # Create a share record in proof_sharing
+        # The share record FIRST, because it is the half that can refuse:
+        # `create_share` rejects a visibility outside its three words and a
+        # `specific_addresses` share with no list (which this method never
+        # passes). It ran after the feed item was stored, so a share the
+        # caller was told had failed stayed in the feed anyway.
         attestation_uid = proof_data.get("attestation_uid", "")
         if attestation_uid:
             visibility = proof_data.get("visibility", "public")
             await self.proof_sharing.create_share(sharer, proof_type, attestation_uid, visibility)
+
+        self._feed_items.append(feed_item)
+        profile["shared_proofs"].append(feed_item_id)
 
         logger.info("Proof shared by %s (type=%s, id=%s)", sharer, proof_type, feed_item_id)
         return feed_item
@@ -242,16 +254,35 @@ class SocialService:
     def _item_comments(item: dict) -> int:
         return len(item.get("comments") or [])
 
+    def _is_follower(self, owner: str, viewer: str) -> bool:
+        """Does *viewer* follow *owner*, by the follow graph this service keeps
+        (the viewer's profile ``following`` list, which ``follow_wallet``
+        writes)? ProofSharing asks this before showing a followers-only share."""
+        profile = self._profiles.get(viewer) or {}
+        return owner in (profile.get("following") or [])
+
     @staticmethod
     def _is_public_item(item: dict) -> bool:
         """Privacy gate for feeds. Only publicly-visible items may enter ANY feed.
         Proof-shares carry visibility in proof_data; plain posts have none and are
         public by default. Anything not explicitly 'public' is treated as private
-        and never surfaced — the strict reading of 'never enters anyone's feed'."""
-        vis = item.get("visibility")
-        if vis is None:
-            vis = (item.get("proof_data") or {}).get("visibility", "public")
-        return str(vis).lower() == "public"
+        and never surfaced — the strict reading of 'never enters anyone's feed'.
+
+        "ANY feed" covers the platform's other one too. The dispatcher publishes
+        every settled state-modifying action to the public social feed, and
+        `send_message` is `share_proof`, so a followers-only share used to be
+        stored there with its proof_data and served to anyone. That feed's own
+        ingest (`SocialFeedEngine.ingest`) now refuses an item this reading
+        calls non-public, or that the service's answer calls non-public,
+        refuses the privacy service and every operation that is private by
+        what it is (an encrypted message, a credential, a KYC check:
+        ``visibility.PRIVATE_OPERATIONS``), and stores no caller params at
+        all, and the rows an earlier release stored are held to the same rules
+        when the feed opens its table; the HTTP ripple refuses the same items.
+        All three decide with ONE function, ``visibility.is_public``, which
+        this method is. A visibility at the top of an item does not outrank
+        the one in its ``proof_data``: both must say public."""
+        return is_public(item)
 
     async def get_feed(self, address: str, limit: int = 50, mode: str = "latest") -> list:
         """Get the social feed for a user.
@@ -314,8 +345,40 @@ class SocialService:
         # Latest (default + honest fallback): followed authors + self, newest first.
         visible = following | {address}
         feed = [it for it in public_items if self._item_actor(it) in visible]
-        feed.sort(key=lambda x: self._item_ts(x), reverse=True)
-        return feed[:limit]
+        return self._latest_order(feed)[:limit]
+
+    def _latest_order(self, items: list[dict]) -> list[dict]:
+        """Chronological order, from the one function that defines it.
+
+        `feed_ranker.latest()` carries the module's stated guarantee — newest
+        first, ties broken by post id so the same store always answers with the
+        same page. This method existed as a private `sort(key=_item_ts)` with no
+        tie-break, which meant two posts sharing a timestamp came back in
+        whichever order the store happened to hold, and that `latest()` had no
+        production caller at all: the guarantee was prose about an uncalled
+        function. Both the Latest tab and the ranking fallback arrive here, so
+        there is one chronological order in the platform rather than two that
+        can drift.
+
+        Items are mapped back by object identity, not by id, so a record with a
+        missing or duplicated id is ordered rather than dropped or collapsed —
+        Latest has never filtered on id and must not start.
+        """
+        from runtime.social import feed_ranker
+        from runtime.social.feed_ranker import FeedCandidate
+
+        pairs = [
+            (FeedCandidate(
+                id=self._item_id(it),
+                author_id=self._item_actor(it),
+                created_at=self._item_ts(it),
+                likes=self._item_likes(it),
+                comments=self._item_comments(it),
+            ), it)
+            for it in items
+        ]
+        by_obj = {id(c): it for c, it in pairs}
+        return [by_obj[id(c)] for c in feed_ranker.latest([c for c, _ in pairs])]
 
     def _rank_for_you(
         self, public_items: list[dict], *, following: set[str], limit: int,
@@ -504,7 +567,27 @@ class SocialService:
     async def create_community(
         self, creator: str, name: str, description: str = "", token_gate: dict | None = None,
     ) -> dict:
-        """Create a social community."""
+        """Create a social community, and keep it.
+
+        This minted ``comm_{uuid4}``, set ``"status": "active"`` and returned
+        the record without storing it — no dict, no db, no chain. The gateway
+        answered HTTP 200 with an id for a community that existed nowhere, and
+        every read leg of /api/v1/groups is an honest 501, so nothing in the
+        platform could contradict it. `create_profile`, ten methods up in this
+        same class, has stored its record in `self._profiles` all along.
+
+        Kept in `self._communities`, which is process-local: it does not
+        survive a restart and is not shared across workers, the same terms as
+        `_profiles`. The read legs stay 501 until there is a store worth
+        reading them from.
+
+        Refuses an empty creator or name rather than storing a record nobody
+        can be said to own — the guard `create_profile` already makes.
+        """
+        if not creator:
+            raise ValueError("creator is required")
+        if not name:
+            raise ValueError("name is required")
         comm_id = f"comm_{uuid.uuid4().hex[:16]}"
         record = {
             "id": comm_id,
@@ -517,8 +600,16 @@ class SocialService:
             "member_count": 1,
             "created_at": time.time(),
         }
+        self._communities[comm_id] = record
         logger.info("Community created: id=%s name=%s", comm_id, name)
-        return record
+        return dict(record)
+
+    def get_community(self, community_id: str) -> dict | None:
+        """The stored community, or None. Reading back what was written is what
+        makes the created id a fact rather than a string; the /api/v1/groups
+        read legs are still 501 and this is what they would read."""
+        record = self._communities.get(community_id)
+        return dict(record) if record is not None else None
 
     # -- Messaging read delegators -------------------------------------
     # The gateway seam (_call) resolves a service method by a flat getattr on

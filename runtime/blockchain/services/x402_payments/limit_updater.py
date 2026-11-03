@@ -1,9 +1,21 @@
 """
 LimitUpdater -- manages spend limit changes for x402 agents.
 
-Ensures only authorised owners can update limits. All limit changes
-are attested via the attestation service (Component 8) for on-chain
-audit trail.
+Checks that an update names the agent's registered owner, and attests limit
+changes when attestation is enabled. Both are weaker than this used to say
+("only authorised owners ... all limit changes are attested"):
+
+  * the owner check compares a caller-supplied ``authorized_by`` string with
+    the owner registered by ``register_agent_owner``, which anyone may call
+    and which overwrites — so it enforces "a caller who can name the owner",
+    not "the owner";
+  * attestation is skipped when ``x402.require_attestation`` is off, runs
+    AFTER the limits are already written and propagated, and an update whose
+    attestation fails or is skipped still returns ``updated``;
+  * ``SpendEnforcer.set_limits`` writes limits with no owner check at all.
+
+Neither method has an action, a route or a non-test caller today, so none of
+this is reachable; it is stated so a caller wired later does not trust it.
 """
 
 from __future__ import annotations
@@ -24,8 +36,9 @@ class LimitUpdater:
     """
     Manages spend limit updates for agents in the x402 payment system.
 
-    Only the agent's owner can update its spend limits. Each change
-    is recorded with an attestation for on-chain audit.
+    An update must name the agent's registered owner (a self-asserted
+    string — see the module docstring), and a change is attested when
+    attestation is enabled, after it is applied.
 
     Config keys (under config["x402"]):
         require_attestation -- whether to attest limit changes (default True)
@@ -70,8 +83,9 @@ class LimitUpdater:
         """
         Update spend limits for an agent.
 
-        Only the registered owner can update limits. Changes are
-        attested via Component 8 for audit trail.
+        The update must name the registered owner in ``authorized_by`` — a
+        string the caller supplies. Changes are attested via Component 8
+        when attestation is enabled, after they are applied.
 
         Args:
             agent_id: The agent whose limits to update.

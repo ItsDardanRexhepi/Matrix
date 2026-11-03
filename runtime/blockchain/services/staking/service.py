@@ -220,7 +220,10 @@ class StakingService:
 
         # NEW-94: the gate that used to be written out here is now the shared
         # domain gate. Same web3, same contract, same polarity — the only
-        # change is that fourteen sibling methods now use it too.
+        # change is that seven sibling methods now call it too (apy_calculator
+        # one, pools three, this service three besides stake). The other five
+        # public methods of the domain are the enumerated read exemption in
+        # arming.py and deliberately do not. (This said "fourteen".)
         refusal = staking_not_deployed(
             self._web3, self._staking_contract, "stake",
             {"staker": staker, "amount": amount, "pool_id": pool_id},

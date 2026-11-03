@@ -44,9 +44,12 @@ logger = logging.getLogger(__name__)
 # ── Migrations ───────────────────────────────────────────────────────
 #
 # Each entry is ``(version, description, [sql_statement, ...])``. Versions
-# must be strictly increasing. The database records the highest applied
-# version in the ``schema_version`` table and only runs migrations whose
-# version is greater than that.
+# must be strictly increasing. The database records EVERY applied version in
+# the ``schema_version`` table, one row each, and runs every migration whose
+# version is not yet recorded there, in version order. That is not "only
+# versions greater than the highest applied": a lower-numbered migration
+# added later still runs, after the higher ones already applied — which is
+# why the rule below is to append, never to insert.
 #
 # RULES:
 #   - Never edit a released migration. Add a new one.

@@ -57,9 +57,14 @@ BATCH_ITEM_TIMEOUT_SECONDS = 20.0
 class _BatchSubRequest:
     """A minimal aiohttp.web.Request look-alike used for batch dispatch.
 
-    The real handlers only touch ``request.json()`` and
-    ``request.match_info``; we re-implement that tiny surface so we can
-    invoke them directly without spinning up an actual HTTP round trip.
+    The handlers read more than ``request.json()`` and
+    ``request.match_info``, which is all this docstring used to name: GET
+    handlers read ``request.query`` (the social feed, the real-estate reads,
+    the messaging reads), and handlers read ``request.get(...)`` for the
+    per-request state middleware sets, above all the credential the auth wall
+    accepted. Each of those is re-implemented below, so a handler invoked
+    through a batch sees what it would see directly, without an HTTP round
+    trip.
     """
 
     __slots__ = ("_body", "match_info", "headers", "method", "path", "query", "_state")
@@ -391,8 +396,19 @@ class ServiceRoutes:
         # Its handler called insurance.settle_claim — a method that has never
         # existed (the real one is auto_settle_claim) — so the route returned
         # 404 on every request since it was written. Its params were wrong
-        # twice over (claim_id/settlement_amount vs policy_id), and settlement
-        # now requires an owner and oracle verification it never supplied.
+        # twice over (claim_id/settlement_amount vs policy_id).
+        #
+        # This line used to end "and settlement now requires an owner and
+        # oracle verification it never supplied". The oracle half is real —
+        # auto_settle_claim verifies through _verify_via_oracle and fails
+        # closed. The owner half does not exist: auto_settle_claim(policy_id,
+        # oracle_data) takes no caller and never reaches assert_owner, so any
+        # caller who can reach the service can settle a policy they do not
+        # hold. That is the NEW-82 / 18-C deferral in insurance/service.py,
+        # which argues that a per-method guard in ONE service would make the
+        # dispatcher seam look audited while every other service's caller
+        # argument stayed unbound. The deferral stands on its own terms; what
+        # is corrected here is the sentence that contradicted it.
 
         # ── Privacy ──────────────────────────────────────────────────
 
@@ -621,8 +637,13 @@ class ServiceRoutes:
                 content_type="application/json",
             )
 
-    # RUN-4: inner status -> HTTP status. Only the two values that mean "the
-    # operation did not happen" are failures.
+    # RUN-4: inner status -> HTTP status. These two values are failures by
+    # their status alone. They are not the only values that mean "the operation
+    # did not happen" — `not_deployed` means exactly that, and it is answered by
+    # `refusal_http_status` in `_ok` below, from the outcome read off the
+    # payload, rather than by membership here. This comment used to say "only
+    # the two values that mean the operation did not happen", which read as a
+    # complete list of refusals while `not_deployed` went out as HTTP 200.
     #
     # Deliberately NOT in this set: submitted, active, pending, completed,
     # verified, registered, updated, rejected, failed. Those are legitimate
@@ -860,6 +881,23 @@ class ServiceRoutes:
         "get_", "list_", "fetch_", "iter_", "is_", "has_", "read_", "query_", "query",
     )
 
+    #: Reads whose VERB is not a read verb. "Reads never ripple" was false for
+    #: exactly these three, because `verify_` cannot be a blanket read prefix
+    #: (verify_milestone, verify_buyer and snapshot_vote are writes) and all
+    #: three return a dict, so the list-result guard below missed them too.
+    #: Each one reads and mutates nothing:
+    #:   attestation.verify              — EASClient.verify, an on-chain read
+    #:   supply_chain.verify_authenticity — reads _provenance, stores nothing
+    #:   did_identity.verify_credential   — vault lookup + expiry/revocation
+    #: A lookup was being announced on the public /api/v1/events/stream as an
+    #: action somebody took, carrying the id the caller had asked about.
+    #: Named as pairs, not as a prefix, so the verb stays available to writes.
+    _READ_OPERATIONS: frozenset = frozenset({
+        ("attestation", "verify"),
+        ("supply_chain", "verify_authenticity"),
+        ("did_identity", "verify_credential"),
+    })
+
     @staticmethod
     def _record_decline(service_name: str, method_name: str, result: Any,
                         *, actor: str, actor_claimed: str = "") -> None:
@@ -914,8 +952,13 @@ class ServiceRoutes:
 
         Privacy actions NEVER ripple (private_transfer / stealth / private_vote /
         confidential_compute and the privacy-backed storage legs all live on the
-        ``privacy`` service). Reads never ripple. A publish failure can never
-        break the action itself.
+        ``privacy`` service), and neither does an operation that is private by
+        what it is (``visibility.PRIVATE_OPERATIONS``: an encrypted message, a
+        credential, a KYC check, a decentralized identifier's changes). Reads
+        never ripple — by verb where the verb says so, and by name where it
+        does not (``_READ_OPERATIONS``, which is what made this sentence true
+        for the three `verify_*` reads that used to publish). A publish failure
+        can never break the action itself.
 
         AND A REFUSAL IS NOT AN ACTIVITY. The docstring above `_call` said an
         honest failure "raised above" and so never rippled — true of a RAISED
@@ -961,20 +1004,55 @@ class ServiceRoutes:
         announced, because a feed entry for a bridge or a liquidation may be
         restored only when it is derived from a settlement, never from the fact
         that a node accepted the bytes.
+
+        AND A REPLAY IS NOT A SECOND EVENT. A retried idempotent call answers
+        with the first call's record, marked ``replay: True``; it is logged and
+        not announced (`service_dispatcher.is_replay`).
         """
         refused = report_of(result) == FAILURE
-        if service_name == "privacy":
+        # Nor is an operation that is private by what it is: an encrypted
+        # message, a credential issued or presented, a KYC check, a
+        # decentralized identifier made, changed or retired
+        # (social/visibility.py, PRIVATE_OPERATIONS, which the public feed's
+        # door reads too). Its decline is recorded without its actor, as a
+        # privacy action's is.
+        from runtime.blockchain.services.social.visibility import is_private_operation
+        if service_name == "privacy" or is_private_operation(service_name, method_name):
             if refused:
                 self._record_decline(service_name, method_name, result, actor="")
             return
         # A collection result is a read/lookup, never a single consequential action.
         if isinstance(result, list):
             return
+        # Nothing that declares itself non-public is announced to every
+        # subscriber — a followers-only proof share rippled as "shared a proof"
+        # with its actor, which tells everyone the share exists. The same
+        # reading the public feed's own ingest and SocialService's feed use
+        # (social/visibility.py). A refusal of one is still recorded, without
+        # its actor, like a privacy action's.
+        from runtime.blockchain.services.social.visibility import is_public
+        if not is_public(kwargs, result):
+            if refused:
+                self._record_decline(service_name, method_name, result, actor="")
+            return
         m = method_name.lower()
         if any(m == p or m.startswith(p) for p in self._READ_PREFIXES):
             return
+        if (service_name, method_name) in self._READ_OPERATIONS:
+            return
         # create_post already emits a richer ``social.post`` event — don't double.
         if service_name == "social" and method_name == "create_post":
+            return
+        # A REPLAY IS NOT A NEW EVENT. An idempotent method answers a retry
+        # with the record the first call made (`replay: True`), and announcing
+        # that told every subscriber one dispute claim had happened twice. The
+        # dispatcher's rule, by the dispatcher's own predicate.
+        from runtime.blockchain.services.service_dispatcher import is_replay
+        if is_replay(result):
+            logger.info(
+                "ACTION REPLAYED (not announced again): service=%s method=%s — "
+                "the result is the record of an earlier call",
+                service_name, method_name)
             return
         # WHO THE LIVE FEED SAYS ACTED.
         #
@@ -2365,10 +2443,13 @@ class ServiceRoutes:
         bodies at both routes, which is what keeps the two field lists equal.
         """
         # NEW-89 DROPPED-INTENT: `rules` was REQUIRED here and the service has
-        # no rules concept at all — create_community stores creator/name/
+        # no rules concept at all — create_community keeps creator/name/
         # description/token_gate and nothing enforces anything. Mapping rules ->
         # description would return 200 with the caller's rules sitting in a
         # descriptive field that governs nothing. Refuse instead of pretending.
+        # ("stores", this said, while create_community stored nothing at all
+        # and the 200 named a community that existed nowhere; it keeps the
+        # record now, process-locally, and the read legs are still 501.)
         self._require(body, "creator", "name")
         if body.get("rules"):
             return web.json_response(status=501, data={

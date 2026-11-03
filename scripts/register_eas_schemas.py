@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """P2-9: PREPARE EAS schema registrations (dry-run by default).
 
-EAS schema UIDs are chain-specific keccak256 hashes emitted by the SchemaRegistry
-when a schema string is registered. They cannot be guessed or reused across chains
-(the Ethereum-mainnet "Schema #348" does NOT exist on Base). This script prints the
+An EAS schema UID is keccak256(abi.encodePacked(schema, resolver, revocable)) —
+no chain id goes into it — so it can be computed offline, and the same tuple
+registered on two chains has the same UID on both. What is chain-specific is
+whether it IS registered: a UID from Ethereum mainnet (e.g. "Schema #348") names
+nothing on Base until that tuple is registered there. This used to say the UIDs
+are chain-specific and cannot be guessed; the config still has to hold UIDs that
+were actually registered on the chain it points at. This script prints the
 exact SchemaRegistry.register(...) calldata for every SCHEMA_DEFINITIONS entry so a
 human can review and execute the registrations from a funded signer, then paste the
 resulting bytes32 UIDs into config blockchain.schemas (the primary schema's into

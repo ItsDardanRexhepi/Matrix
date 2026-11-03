@@ -260,8 +260,11 @@ class ConversionWizard:
     # lookup remains, which `analyze_org` and `convert` already return.
     #
     # REMOVED RATHER THAN REFUSED, because unlike the multisig case there is no
-    # substrate here to build on and no caller to serve: `migrate_members`
-    # appears exactly once in the repo — its own definition. `DAOService.join_dao`
+    # substrate here to build on and no caller to serve: `migrate_members` has
+    # no definition and no caller anywhere in the repo — every remaining
+    # occurrence is prose about its removal (this note, two sibling notes and
+    # a test that pins the absence). This said it "appears exactly once — its
+    # own definition", which was true before it was removed. `DAOService.join_dao`
     # is the real operation, with five validations and three store writes.
     #
     # AND IT WAS THE CHEAPEST OF THE FOUR TO ARM. Not in ACTION_MAP, not in the

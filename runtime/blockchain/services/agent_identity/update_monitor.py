@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 # Maximum allowed capability expansion per update (percentage of current)
 MAX_CAPABILITY_EXPANSION_PCT = 0.50  # 50%
 
+# How many capabilities one update may add to an agent that holds none. A
+# percentage of an empty set is no bound at all — the rate check used to be
+# skipped there, so one update could add any number of capabilities to a
+# fresh agent and pass as safe.
+MAX_ADDED_FROM_EMPTY = 1
+
 # Restricted capabilities that require explicit authorisation
 RESTRICTED_CAPABILITIES: set[str] = {
     "financial_transfer",
@@ -87,6 +93,11 @@ class SafetyValidator:
                     f"Capability expansion rate {expansion_rate:.0%} exceeds "
                     f"maximum allowed {self.max_expansion_pct:.0%}"
                 )
+        elif added and len(added) > MAX_ADDED_FROM_EMPTY:
+            issues.append(
+                f"An agent with no capabilities may gain at most "
+                f"{MAX_ADDED_FROM_EMPTY} per update; this adds {len(added)}"
+            )
 
         return {
             "safe": len(issues) == 0,
@@ -263,8 +274,11 @@ class UpdateMonitor:
         results: dict[str, Any] = {}
         all_safe = True
 
-        # 1. Capability scope validation
-        if update.get("type") == "capability_change":
+        # 1. Capability scope validation — for ANY update that carries a new
+        # capability set. It used to run only for type "capability_change",
+        # so an update of another type carrying new capabilities was validated
+        # with no scope check at all.
+        if update.get("type") == "capability_change" or "new_capabilities" in update:
             scope_result = self._validator.validate_capability_scope(
                 update.get("old_capabilities", []),
                 update.get("new_capabilities", []),

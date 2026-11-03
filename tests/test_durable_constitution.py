@@ -1045,7 +1045,7 @@ INVARIANT_FILES = ("tests/test_a_broadcast_is_not_a_settlement.py",
 #: copy the target branch holds once that change reaches it.
 INVARIANT_DIGESTS = {
     "tests/test_a_broadcast_is_not_a_settlement.py":
-        "0da6aa91ad04bcfe39516e5937108bb1440b38284eebc297d76b94e03af38630",
+        "61929312cae63f7620969ba027a07de69d19ceba9eb472b88b23a2c5a68d86e9",
     "tests/test_a_record_says_what_happened.py":
         "854e30c49215163c2b611b3596d8488963e07c194529df1e029ecd06af266dc7",
     "tests/test_gate_fault_fail_direction.py":
@@ -1059,11 +1059,10 @@ INVARIANT_DIGESTS = {
 #: durable work itself changes none of them.
 CHANGED_BEFORE_THE_TARGET = {
     "tests/test_a_broadcast_is_not_a_settlement.py": (
-        "35d3c399849645d281c091718038addab3431769e15386a30feabbea4fb10f98",
-        "its pinned counts of bare broadcasts, re-derived when eight services-layer "
-        "senders stopped signing a call or a message the request composed and refuse "
-        "before anything is built (27 to 19 functions and action names, 26 to 18 "
-        "senders that do not wait for a receipt)"),
+        "0da6aa91ad04bcfe39516e5937108bb1440b38284eebc297d76b94e03af38630",
+        "its KYC fixture answers the provider review and the applicant binding a "
+        "KYC credential now waits for before it is sent, so the tests about a "
+        "credential that was only sent still reach the send they are about"),
     "tests/test_a_record_says_what_happened.py": (
         "a921361c6b153cb9ac8b9c2df7eb509e511018aa9e8189b5b5da3a62f3dbb499",
         "its public-feed DEFECT-PROVER drives execute with a request that names 999 "

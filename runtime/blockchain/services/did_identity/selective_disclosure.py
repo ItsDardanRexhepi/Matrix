@@ -1,9 +1,18 @@
 """
 SelectiveDisclosure — privacy-preserving credential presentation.
 
-Allows a credential holder to create a Verifiable Presentation that
-reveals only a chosen subset of claim fields from their credentials.
-Verifiers can validate the presentation without seeing undisclosed data.
+Builds a presentation that reveals the VALUES of a chosen subset of claim
+fields. What it does not hide, which this used to leave out: the NAMES of the
+undisclosed fields (each appears with a salted commitment, and in the
+disclosure metadata), and the credential's id. The salts are discarded, so a
+commitment can never be opened.
+
+Verification is against this service's own record: a presentation it made and
+still holds, presented unchanged. A presentation made anywhere else does not
+verify here — it used to, on a structural check alone — and the derived
+credentials carry no issuer proof, so nothing outside this process can check
+that a disclosed value is the one the issuer wrote. The proof is a digest, not
+a signature (``PROOF_TYPE``).
 """
 
 import hashlib
@@ -11,6 +20,8 @@ import logging
 import time
 import uuid
 from typing import Any
+
+from .credential_vault import PROOF_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +81,9 @@ class SelectiveDisclosure:
         Returns
         -------
         dict
-            W3C Verifiable Presentation with selectively disclosed claims.
+            A presentation shaped after the W3C data model, with the chosen
+            fields' values disclosed (see the module docstring for what is
+            not hidden and what the proof is).
         """
         if not holder_did:
             raise ValueError("holder_did is required")
@@ -145,7 +158,7 @@ class SelectiveDisclosure:
             "holder": holder_did,
             "verifiableCredential": derived_credentials,
             "proof": {
-                "type": "Ed25519Signature2020",
+                "type": PROOF_TYPE,
                 "created": now_iso,
                 "verificationMethod": f"{holder_did}#key-0",
                 "proofPurpose": "authentication",
@@ -166,9 +179,12 @@ class SelectiveDisclosure:
         return presentation
 
     async def verify_presentation(self, presentation: dict) -> dict:
-        """Verify a Verifiable Presentation.
+        """Verify a presentation against the one this service made.
 
-        Checks structural validity, holder reference, and proof integrity.
+        Checks structural validity and the holder reference, and that the
+        presentation is one this service created and still holds, presented
+        unchanged. A presentation from anywhere else does not verify: its proof
+        is a digest only its maker can check.
         """
         errors: list[str] = []
 
@@ -192,16 +208,25 @@ class SelectiveDisclosure:
         if not proof.get("proofValue"):
             errors.append("Missing proof.proofValue")
 
-        # Verify proof against stored presentation
+        # Verify against the stored presentation. An external one used to be
+        # proof_valid on a structural check alone, with no error, so it came
+        # back valid; and a stored one was compared on its proof value only,
+        # so its disclosed values could be changed without failing.
         proof_valid = False
         if pres_id:
             stored = self._presentations.get(pres_id)
-            if stored is not None:
-                proof_valid = stored["proof"]["proofValue"] == proof.get("proofValue")
-                if not proof_valid:
-                    errors.append("Proof value does not match")
+            if stored is None:
+                errors.append(
+                    "Presentation was not created by this service; its proof "
+                    "is a digest only its maker can check")
+            elif stored["proof"]["proofValue"] != proof.get("proofValue"):
+                errors.append("Proof value does not match")
+            elif stored != presentation:
+                errors.append(
+                    "Presentation content differs from the one this service "
+                    "created")
             else:
-                proof_valid = True  # external presentation, structural check only
+                proof_valid = True
 
         # Check each credential has a valid subject
         for i, cred in enumerate(credentials):

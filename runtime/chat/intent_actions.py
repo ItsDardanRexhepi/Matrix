@@ -2351,7 +2351,10 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # ===================================================================
 
     # NEW-38: data deletion is OFFLINE. Both entries follow the NEW-12 idiom —
-    # `unavailable: True`, no `action_name` (so nothing can dispatch them),
+    # `unavailable: True`, no `action_name` (so nothing dispatches them FROM
+    # HERE; `request_deletion` is still an ACTION_MAP entry, reachable through
+    # platform_action, where privacy.request_deletion refuses because deletion
+    # is offline — this said nothing could dispatch it),
     # keywords KEPT so "delete my data" is still recognised rather than
     # matching nothing, and the honest answer in `follow_up`.
     #
