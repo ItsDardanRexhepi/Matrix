@@ -179,12 +179,22 @@ def _armed():
     svc._web3 = types.SimpleNamespace(
         available=True, is_placeholder=lambda _value: False, load_contract=_no_chain)
     svc._nft_contract = "0x" + "c0" * 20
+
+    async def _owner_of(_collection, _token_id):
+        # fractionalize reads the token's owner and refuses one it cannot
+        # read; this chain answers that one read with the caller below.
+        return TOKEN_OWNER
+    svc._owner_of = _owner_of
     return svc
+
+
+#: Who owns token 1 on the armed chain, and fractionalizes it below.
+TOKEN_OWNER = "0x" + "0a" * 20
 
 
 def _the_seven(svc):
     return (
-        svc.fractionalize("0xC", 1, 10, 1.0),
+        svc.fractionalize("0xC", 1, 10, 1.0, owner=TOKEN_OWNER),
         svc.rent("0xC", 1, "0xR", 7, 1.0),
         svc.batch_mint("0xC", "0xA", 2, {}),
         svc.royalty_claim("0xC", 1, "0xA"),
@@ -210,10 +220,10 @@ async def test_the_seven_say_nothing_settled_once_armed():
     "fractionalized" / "rented" / "minted" / "claimed" / "bridged" / "updated"
     to `recorded_unsettled`. A docstring about the branch it never ran.
 
-    Armed here with a contract address and an available chain whose owner
-    read fails (so fractionalize's owner check reads nothing and does not
-    refuse). Every one must answer `recorded_unsettled` with `settled: False`
-    — the header's table, driven."""
+    Armed here with a contract address and an available chain that answers
+    fractionalize's one owner read with its caller (an owner it cannot read
+    is refused, not skipped). Every one must answer `recorded_unsettled` with
+    `settled: False` — the header's table, driven."""
     svc = _armed()
     for coro in _the_seven(svc):
         record = await coro

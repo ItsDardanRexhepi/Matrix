@@ -21,6 +21,7 @@ ERC20_ABI = [
     {"inputs": [], "name": "name", "outputs": [{"name": "", "type": "string"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "symbol", "outputs": [{"name": "", "type": "string"}], "stateMutability": "view", "type": "function"},
     {"inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "mint", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
+    {"inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}], "stateMutability": "view", "type": "function"},
 ]
 
 
@@ -161,7 +162,11 @@ contract {symbol}Token is ERC20, Ownable {{
                 address=Web3.to_checksum_address(params["contract_address"]),
                 abi=ERC20_ABI,
             )
-            amount = int(float(params.get("amount", "0")) * 10**18)
+            # In the token's own units: the platform allowance cap is in whole
+            # tokens, and a fixed 10**18 made a capped approve of 100 on a
+            # 6-decimal token grant 10**14 of them.
+            decimals = int(contract.functions.decimals().call())
+            amount = int(float(params.get("amount", "0")) * 10**decimals)
             account = await self._platform_signer("tokenization.approve")
 
             tx = contract.functions.approve(

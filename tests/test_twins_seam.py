@@ -248,6 +248,11 @@ def _stack():
 
 
 async def test_the_gate_sees_a_deployment_as_a_signed_transaction():
+    """`deploy` is not a declared smart_contract verb (the twin generates and
+    never deploys), so this exercises the undeclared-verb fallback: an action
+    the table does not name is read as a platform-key-signed transaction."""
+    from runtime.security.action_map import SIGNING_ACTIONS
+    assert "deploy" not in SIGNING_ACTIONS["smart_contract"], "deploy is now declared: test the entry"
     stack = _stack()
     result = await stack.pre_action("smart_contract", {"action": "deploy", "source": "contract X {}"}, {"wallet": "0xTEST_A"})
     assert result["approved"] is True

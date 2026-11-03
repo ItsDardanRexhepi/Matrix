@@ -476,6 +476,10 @@ class ToolDispatcher:
                 accepted = inspect.signature(handler).parameters
             except (TypeError, ValueError):
                 accepted = {}
+            # Into a copy: written into the caller's own dict, the bound
+            # identity reached what pre_action, post_action and the client
+            # saw of the call, and a dict passed twice carried it into the next.
+            arguments = dict(arguments)
             if "caller_identity" in accepted and caller_identity:
                 arguments["caller_identity"] = caller_identity
             if "caller_source" in accepted and caller_source:

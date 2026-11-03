@@ -31,8 +31,17 @@ SETUPTOOLS_COMMANDS = frozenset({
 
 
 def invoked_by_setuptools(argv=None):
+    """True for a run setuptools started. Its global options come before the
+    command (`pip install -e . -C--quiet` runs `setup.py -q egg_info`), so the
+    command is the first argument that is not an option, or one of the
+    metadata queries that are spelt like one (`--name`, `--version`)."""
     argv = sys.argv if argv is None else argv
-    return len(argv) > 1 and argv[1] in SETUPTOOLS_COMMANDS
+    for arg in argv[1:]:
+        if arg in SETUPTOOLS_COMMANDS:
+            return True
+        if not arg.startswith("-"):
+            return False
+    return False
 
 
 if __name__ == "__main__":

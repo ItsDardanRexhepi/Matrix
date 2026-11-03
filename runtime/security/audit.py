@@ -60,10 +60,12 @@ class AuditReport:
     #:
     #: §CT — a zero has more than one cause. "No findings" conflated two very
     #: different states: the contract was examined and is clean, and there was
-    #: no executable logic to examine. Every check in this class is about
-    #: RUNTIME BEHAVIOUR (reentrancy, unchecked calls, delegatecall, ether
-    #: handling), so a source with no function bodies produces zero findings
-    #: for the second reason and used to come back
+    #: no executable logic to examine. Nine of the twelve checks in this class
+    #: are about RUNTIME BEHAVIOUR (reentrancy, unchecked calls, delegatecall,
+    #: ether handling); the other three read a pragma, a declaration or a
+    #: signature, and still report on a source with no body. So a source with
+    #: no function bodies produces zero behavioural findings, and used to come
+    #: back
     #: `passed: true, "No vulnerabilities detected. Contract passed all
     #: security checks."` — an all-clear on an artifact nobody could judge.
     #:
@@ -72,7 +74,10 @@ class AuditReport:
     #: and on the deploy gate, because each read the raw report. Putting the
     #: distinction in the report itself is what reaches all of them: `passed`
     #: is False when nothing was auditable, so `should_block` — which every one
-    #: of those consumers already calls — blocks instead of certifying.
+    #: of those consumers already calls — blocks instead of certifying. The
+    #: Glasswing gate holds that block for a call that deploys or signs; a
+    #: compile or an audit of such a source deploys nothing and gets the
+    #: report instead (runtime/protocols/integration.py).
     auditable: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -149,7 +154,7 @@ class ContractAuditor:
         #
         # A first draft of this returned early when there was no executable
         # logic, on the reasoning that every check examines runtime behaviour.
-        # That was wrong for three of the eleven: floating pragma reads the
+        # That was wrong for three of the twelve: floating pragma reads the
         # pragma line, locked ether reads payable/withdraw declarations, and
         # missing access control reads a function SIGNATURE. All three fire on
         # sources with no function body at all, and the early return threw
@@ -210,19 +215,13 @@ class ContractAuditor:
         string all answer False — correctly. They are not "safe"; they are
         artifacts the BEHAVIOURAL checks say nothing about. The structural
         checks still run over them and their findings are still reported.
+
+        Read on the code alone (``_code_only``): a comment, and the inside of a
+        string literal, are not code, so a ``"//"`` in a string does not erase
+        what follows it and a string that spells a function is not one. One
+        pass over the source, whatever it holds (``_bodies``).
         """
-        stripped = cls._strip_comments(source or "")
-        pos = 0
-        while True:
-            m = cls._DECL.search(stripped, pos)
-            if m is None:
-                return False
-            body = cls._body_after(stripped, m.end())
-            pos = m.end()
-            if body is None:          # `function f() external;` — a declaration
-                continue
-            if body.strip():          # a body with anything in it at all
-                return True
+        return any(body for _m, body in cls._bodies(source, cls._DECL))
 
     _FUNCTION_NAME = re.compile(r"\bfunction\s+(\w+)\s*\(")
 
@@ -235,38 +234,79 @@ class ContractAuditor:
         answered by two different readings of the same text. An overloaded name
         counts as implemented if any of its overloads has a body.
         """
-        stripped = cls._strip_comments(source or "")
-        found: set[str] = set()
-        for m in cls._FUNCTION_NAME.finditer(stripped):
-            body = cls._body_after(stripped, m.end())
-            if body is not None and body.strip():
-                found.add(m.group(1))
-        return found
+        return {m.group(1) for m, body in cls._bodies(source, cls._FUNCTION_NAME) if body}
 
-    @staticmethod
-    def _strip_comments(source: str) -> str:
-        source = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)
-        return re.sub(r"//[^\n]*", " ", source)
+    # A comment, or a string literal with its escapes, in one alternation: the
+    # scanner takes whichever starts first, so a comment mark inside a string
+    # and a quote inside a comment are each read as what they sit in.
+    _NOT_CODE = re.compile(
+        r"//[^\n]*"
+        r"|/\*.*?(?:\*/|\Z)"
+        r'|"(?:\\.|[^"\\\n])*"?'
+        r"|'(?:\\.|[^'\\\n])*'?",
+        re.S,
+    )
+    _DELIMITER = re.compile(r"[{};]")
+    _CODE_CHARACTER = re.compile(r"\S")
 
-    @staticmethod
-    def _body_after(source: str, start: int) -> str | None:
-        """The brace-matched body following a declaration, or None when the
-        declaration ends in `;` before any `{` (an interface method)."""
-        i = start
-        while i < len(source) and source[i] not in "{;":
-            i += 1
-        if i >= len(source) or source[i] == ";":
-            return None
-        depth, j = 0, i
-        while j < len(source):
-            if source[j] == "{":
-                depth += 1
-            elif source[j] == "}":
-                depth -= 1
-                if depth == 0:
-                    return source[i + 1:j]
-            j += 1
-        return None                    # unbalanced source: no judgeable body
+    @classmethod
+    def _code_only(cls, source: str) -> str:
+        """*source* with every comment and the inside of every string literal
+        blanked (quotes kept, lengths and newlines kept): what is left is code."""
+        def _blank(m: "re.Match[str]") -> str:
+            text = m.group(0)
+            if text[0] in "\"'":
+                return text[0] + re.sub(r"[^\n]", " ", text[1:-1]) + text[-1] if len(text) > 1 else text
+            return re.sub(r"[^\n]", " ", text)
+        return cls._NOT_CODE.sub(_blank, source or "")
+
+    @classmethod
+    def _bodies(cls, source: str, declaration: "re.Pattern[str]"):
+        """``(match, has_body)`` for each *declaration* in *source*'s code.
+
+        A declaration's body is the brace-matched block after it; ending in
+        ``;`` before any ``{`` (an interface method) or opening a brace that is
+        never closed (unbalanced source) is no judgeable body. Linear: the
+        braces are matched once with a stack over the delimiters alone, the
+        delimiter after each declaration is found by bisection, and a body is
+        non-empty when its first character that is not whitespace comes before
+        its closing brace. The bodies' leading runs of whitespace never
+        overlap, so those searches together read each character once. The
+        reading this replaces scanned to the end of the source for every
+        declaration whose braces never balanced.
+        """
+        import bisect
+
+        code = cls._code_only(source)
+        positions: list[int] = []
+        kinds: list[str] = []
+        closing: dict[int, int] = {}
+        stack: list[int] = []
+        for m in cls._DELIMITER.finditer(code):
+            at, kind = m.start(), m.group(0)
+            positions.append(at)
+            kinds.append(kind)
+            if kind == "{":
+                stack.append(at)
+            elif kind == "}" and stack:
+                closing[stack.pop()] = at
+        # The first `{` or `;` at or after each delimiter (a `}` opens nothing),
+        # by one pass from the end.
+        opener = [len(positions)] * (len(positions) + 1)
+        for i in range(len(positions) - 1, -1, -1):
+            opener[i] = i if kinds[i] != "}" else opener[i + 1]
+        for m in declaration.finditer(code):
+            i = opener[bisect.bisect_left(positions, m.end())]
+            if i >= len(positions) or kinds[i] == ";":
+                yield m, False
+                continue
+            start = positions[i]
+            end = closing.get(start)
+            if end is None:
+                yield m, False
+                continue
+            first = cls._CODE_CHARACTER.search(code, start + 1, end)
+            yield m, first is not None
 
     # ── Vulnerability checks ─────────────────────────────────────────
 

@@ -45,9 +45,11 @@ behaviour. Denial happens only where a cap or an allowlist is configured.
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 import time
 import uuid
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from functools import lru_cache
@@ -140,9 +142,14 @@ class SponsorshipPolicy:
             None if allowed_actions is None else {str(a) for a in allowed_actions})
         self.daily_cap_usd = None if daily_cap_usd is None else float(daily_cap_usd)
         self._db_path = Path(db_path) if db_path else None
+        if self.daily_cap_usd is not None and self._db_path is None:
+            # A cap meters spend in its ledger; without one the first metered
+            # request opened a SQLite file named "None" in the working
+            # directory and failed on a missing table.
+            raise ValueError("a daily sponsorship cap needs a ledger (db_path) to meter spend in")
         if self._db_path is not None:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            with self._connect() as conn:
+            with closing(self._connect()) as conn:
                 conn.executescript(_SCHEMA)
                 # A spender recorded before the platform's one spelling of a
                 # caller (this meter kept a 0X-prefixed address apart from the
@@ -173,8 +180,14 @@ class SponsorshipPolicy:
 
     # ── storage ──────────────────────────────────────────────────────────
 
+    #: Seconds to wait for another writer's lock on the ledger.
+    _busy_timeout = 10.0
+
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path), timeout=10.0,
+        # Closed by every caller (contextlib.closing): a connection's own
+        # context manager commits or rolls back and leaves it open, so each
+        # ledger operation used to leave its file descriptors behind.
+        conn = sqlite3.connect(str(self._db_path), timeout=self._busy_timeout,
                                isolation_level=None)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=FULL")
@@ -226,19 +239,13 @@ class SponsorshipPolicy:
         identity = canonical_identity(identity)
         est_usd = max(0.0, float(est_usd or 0.0))
 
-        if self.allowed_actions is not None:
-            # An empty list of actions is not vacuously allowed.
-            refused = [a for a in labels if a not in self.allowed_actions] or (
-                [] if labels else ["<nothing>"])
-            if refused:
-                return SponsorshipDecision(
-                    False, "action_not_allowed",
-                    f"gas sponsorship not available for action '{summarize_labels(refused)}'",
-                    identity=identity, action=action, est_usd=est_usd,
-                    cap_usd=self.daily_cap_usd)
+        refusal = self.allowlist_refusal(labels, identity=identity, est_usd=est_usd)
+        if refusal is not None:
+            return refusal
 
         if not self.enforces_a_cap:
-            # No cap configured: previous behaviour exactly, allowlist aside.
+            # No cap configured: nothing is metered; the allowlist above is
+            # the only thing read.
             return SponsorshipDecision(
                 True, "allowed_no_cap", "no daily cap configured",
                 identity=identity, action=action, est_usd=est_usd)
@@ -251,7 +258,7 @@ class SponsorshipPolicy:
                 action=action, est_usd=est_usd, cap_usd=self.daily_cap_usd)
 
         cap = float(self.daily_cap_usd)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             try:
                 conn.execute("BEGIN IMMEDIATE")
                 self._sweep(conn, now)
@@ -274,12 +281,39 @@ class SponsorshipPolicy:
                      SPEND_STATES.RESERVED, now))
                 conn.execute("COMMIT")
             except sqlite3.Error:
-                conn.execute("ROLLBACK")
+                # BEGIN IMMEDIATE itself is what times out when another writer
+                # holds the ledger; a ROLLBACK then has no transaction to undo
+                # and its own error ("cannot rollback") replaced the real one.
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
         return SponsorshipDecision(
             True, "allowed", "within the daily sponsorship cap",
             identity=identity, action=action, est_usd=est_usd,
             spent_usd=spent, cap_usd=cap, reservation_id=res_id)
+
+    def allowlist_refusal(self, action: Union[str, Sequence[str]], *, identity: str = "",
+                          est_usd: float = 0.0) -> Optional[SponsorshipDecision]:
+        """The refusal the allowlist gives *action* (every label in it), or
+        None. Read before anything is priced: a request no price makes
+        allowable is refused as what it is, not answered 503 because the
+        price feed is down."""
+        if self.allowed_actions is None:
+            return None
+        if action is None or isinstance(action, str):
+            labels = [str(action or "")]
+        else:
+            labels = [str(a or "") for a in action]
+        # An empty list of actions is not vacuously allowed.
+        refused = [a for a in labels if a not in self.allowed_actions] or (
+            [] if labels else ["<nothing>"])
+        if not refused:
+            return None
+        return SponsorshipDecision(
+            False, "action_not_allowed",
+            f"gas sponsorship not available for action '{summarize_labels(refused)}'",
+            identity=canonical_identity(identity), action=summarize_labels(labels),
+            est_usd=est_usd, cap_usd=self.daily_cap_usd)
 
     def commit(self, reservation_id: str) -> None:
         """The signature was ISSUED. That is what this row now says.
@@ -299,7 +333,7 @@ class SponsorshipPolicy:
         """
         if not reservation_id or self._db_path is None:
             return
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(
                 "UPDATE sponsorship_spend SET state = ? "
                 "WHERE id = ? AND state = ?",
@@ -309,7 +343,7 @@ class SponsorshipPolicy:
         """The transaction was MINED — this is the point at which gas was paid."""
         if not reservation_id or self._db_path is None:
             return
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(
                 "UPDATE sponsorship_spend SET state = ? WHERE id = ? AND state IN (?, ?, ?)",
                 (SPEND_STATES.SPENT, reservation_id, SPEND_STATES.RESERVED,
@@ -322,7 +356,7 @@ class SponsorshipPolicy:
         as the over-claim, facing the other way and visible to nobody."""
         if not reservation_id or self._db_path is None:
             return
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(
                 "DELETE FROM sponsorship_spend WHERE id = ? AND state IN (?, ?, ?)",
                 (reservation_id, SPEND_STATES.RESERVED, SPEND_STATES.SIGNED,
@@ -332,7 +366,7 @@ class SponsorshipPolicy:
         """What this row says happened, or None if there is no such row."""
         if not reservation_id or self._db_path is None:
             return None
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT state FROM sponsorship_spend WHERE id = ?",
                 (reservation_id,)).fetchone()
@@ -343,7 +377,7 @@ class SponsorshipPolicy:
         downstream does not charge an identity for gas nobody sponsored."""
         if not reservation_id or self._db_path is None:
             return
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(
                 "DELETE FROM sponsorship_spend WHERE id = ? AND state = ?",
                 (reservation_id, SPEND_STATES.RESERVED))
@@ -352,7 +386,7 @@ class SponsorshipPolicy:
         if self._db_path is None:
             return 0.0
         now = time.time() if now is None else now
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             return self._spent(conn, canonical_identity(identity), now)
 
 
@@ -662,11 +696,16 @@ def policy_settings(config: dict) -> tuple[Optional[list], Optional[float]]:
         try:
             cap = float(raw_cap)
         except (TypeError, ValueError):
+            cap = None
+        if cap is None or not math.isfinite(cap) or cap < 0:
             # §DL: a malformed cap is not "no cap". Refusing to parse it into
-            # unlimited spend is the only safe reading.
+            # unlimited spend is the only safe reading — and NaN, infinity
+            # and a negative amount are malformed too: no spend is ever
+            # greater than NaN, so "NaN" parsed as a cap allowed any spend.
             logger.error(
-                "paymaster.policy.daily_cap_usd is %r, which is not a number. "
-                "Treating it as zero (deny) rather than as no cap.", raw_cap)
+                "paymaster.policy.daily_cap_usd is %r, which is not a finite, "
+                "non-negative number. Treating it as zero (deny) rather than "
+                "as no cap.", raw_cap)
             cap = 0.0
 
     return (list(allowed) if allowed is not None else None), cap
