@@ -21,7 +21,8 @@ Not here: the sentences about the agent boundary — Trinity "never any
 state-changing action" and "only this single, gated channel", "a subverted
 agent cannot reach another agent's tools", "never fails open". Whether the
 boundary is built to what they say or they are corrected to what the code
-keeps is the owner's decision, and they stay as written until he makes it.
+keeps is a decision about the architecture, which this file does not take;
+they stay as written and are not read here.
 """
 
 from __future__ import annotations
