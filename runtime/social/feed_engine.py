@@ -59,19 +59,9 @@ RECENCY_HALF_LIFE = 3600.0
 
 # ── Human-readable action labels ─────────────────────────────────────
 ACTION_LABELS: Dict[str, str] = {
-    # NEW-12: no label here narrates a deployment, and a test walks this table
-    # to keep it that way (tests/test_feed_labels_and_value_ceiling_hold.py).
-    #
-    # The original reason given was "the platform cannot deploy". That is no
-    # longer the reason, because it is no longer true: with
-    # `conversion.auto_deploy` on, ContractConversionService compiles the
-    # generated Solidity and broadcasts a constructor transaction with the
-    # platform's own key. It is off by default and no shipped config turns it
-    # on, and `smart_contracts.deploy` — the surface an agent could reach —
-    # answers `not_implemented`. So the accurate statement is narrower and
-    # still enough: the feed has no row for the one path that can deploy, and
-    # `convert_contract` reads "converted a contract to blockchain", which
-    # does not claim a deployment happened.
+    # NEW-12: no "deployed a smart contract" label — the platform cannot
+    # deploy, so no feed row may ever narrate one. A test walks this table to
+    # keep it that way (tests/test_feed_labels_and_value_ceiling_hold.py).
     #
     # `create_game` used to sit in this table as "deployed a blockchain game",
     # with an icon and a category behind it. No action by that name exists

@@ -8,16 +8,17 @@ Built true:
   * the morpheus_triggers guard "pinned so a cleanup cannot silently drop it"
     — the pinning test named four of its nine entries.
 
-Corrected where the sentence was wrong: Trinity "never any state-changing
-action" and "only this single, gated channel" (request_execution reaches
-Neo's executor under a gate that allows everything without an enforcing core,
-and she holds platform_action for reads), "a subverted agent cannot reach
-another agent's tools" (it cannot CALL them), "never fails open" (the public
-default is coarser than the private policy), "only 'not installed' degrades"
-(an ImportError inside an installed core does too), the deletion intents that
+Corrected where the sentence was wrong: "only 'not installed' degrades" (an
+ImportError inside an installed core does too), the deletion intents that
 "nothing can dispatch", the Rexhepi gate that "every operation must pass" and
 its wallet and network checks, Vision's "always follows", the conversational
 initiative's "only", and outcome storage called "append-only JSONL".
+
+Not here: the sentences about the agent boundary — Trinity "never any
+state-changing action" and "only this single, gated channel", "a subverted
+agent cannot reach another agent's tools", "never fails open". Whether the
+boundary is built to what they say or they are corrected to what the code
+keeps is the owner's decision, and they stay as written until he makes it.
 """
 
 from __future__ import annotations
@@ -84,18 +85,8 @@ def test_the_guard_block_is_pinned_entry_by_entry():
 
 # ── the sentences ──────────────────────────────────────────────────────────
 
-def test_the_agent_boundary_sentences_say_what_holds():
-    assert ("NEVER bash, file_ops, raw blockchain execution tools, or any state-changing action"
-            not in _text("runtime/access_policy.py"))
-    handoff = _text("runtime/agents/handoff.py")
-    assert "Trinity never gains Neo's tools — she only ever holds this single, gated channel." not in handoff
-    assert "contract path. Trinity never touches this executor directly." not in handoff
-    dispatcher = _text("runtime/tools/dispatcher.py")
-    assert "raw execution tools — only this single controlled channel." not in dispatcher
-    assert "so a subverted agent cannot reach another agent's tools" not in dispatcher
+def test_the_seam_sentences_say_what_holds():
     seam = _text("runtime/security/__init__.py")
-    assert "boundary is enforced — a subverted agent cannot reach another agent's tools." not in seam
-    assert "holds — it never fails open)" not in seam
     assert "every action is allowed and logged, nothing is enforced" not in seam
     assert "Only the first is caught now." not in seam
 

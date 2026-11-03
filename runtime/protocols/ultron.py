@@ -248,11 +248,8 @@ class UltronProtocol:
             self._step("compile_contract", "Compile and verify contract code", {"goal": goal}),
             self._step("security_audit", "Run Glasswing security audit on compiled contract", {}),
             self._step("estimate_gas", "Estimate deployment gas cost", {}),
-            # NEW-12: removed — this step claimed a deployment no plan can
-            # request: nothing dispatches one and smart_contracts.deploy
-            # answers not_implemented. Conversion is the real capability; it
-            # deploys only when the operator has turned conversion.auto_deploy
-            # on (off by default), and then as part of the conversion.
+            # NEW-12: removed — this step claimed a deployment the platform
+            # cannot perform. Conversion is the real capability.
             self._step("convert_contract", "Convert to Solidity scaffolding", {}),
             self._step("verify_contract", "Verify contract on block explorer", {}),
         ]

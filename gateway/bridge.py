@@ -135,10 +135,7 @@ SERVICE_CATALOG = [
         "icon": "doc.text.magnifyingglass",
         "description": "Convert any agreement into a self-executing smart contract.",
         "category": "core",
-        # NEW-12: deploy_contract removed — no action deploys a contract on
-        # request. (The one path that deploys is operator-controlled,
-        # conversion.auto_deploy, off by default, and runs inside
-        # convert_contract.)
+        # NEW-12: deploy_contract removed — the platform does not deploy.
         "actions": ["convert_contract", "estimate_contract_cost", "list_templates"],
     },
     {

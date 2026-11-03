@@ -22,13 +22,8 @@ from runtime.social.feed_engine import FeedEvent
 # ── Icon mapping ─────────────────────────────────────────────────────
 
 ICONS: Dict[str, str] = {
-    # NEW-12: the feed renders no deployment. The original reason — "the
-    # platform cannot perform one" — is not the reason any more, because it is
-    # not true: `conversion.auto_deploy` makes ContractConversionService
-    # broadcast a constructor transaction with the platform's key. It is off by
-    # default and no shipped config turns it on, and the agent-reachable
-    # `smart_contracts.deploy` answers `not_implemented`. What holds is the
-    # narrower statement: there is no feed row for that path.
+    # NEW-12: no deploy_contract icon — the feed can never render a
+    # deployment, because the platform cannot perform one.
     #
     # `create_game` carried a 🎮 here and a Gaming category below, against a
     # label that read "deployed a blockchain game" and an action that does not

@@ -105,7 +105,7 @@ contract {symbol}Token is ERC20, Ownable {{
             "source": source,
             "note": ("Source only — nothing was deployed. Compile it with the "
                      "smart_contract tool's 'compile' action for ABI and bytecode, then "
-                     "deploy it with your own signer. This tool does not deploy contracts."),
+                     "deploy it with your own signer. The platform does not deploy contracts."),
         }, indent=2)
 
     async def _transfer(self, params: dict) -> str:

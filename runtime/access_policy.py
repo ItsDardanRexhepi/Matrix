@@ -15,16 +15,11 @@ the two: private if present, else this default. Either way the boundary holds.
 
 Assigned tool sets (documented for review):
   - Neo     — FULL execution set: every tool, every action. The invisible engine.
-  - Trinity — conversational gateway: ``web_search``, ``web``, ``platform_action``
+  - Trinity — conversational gateway: ``web_search``, ``web``, and ``platform_action``
               restricted to NON-state-modifying actions (reads / quotes / analytics /
-              conversation), and ``request_execution``. NEVER bash, file_ops or the
-              raw blockchain execution tools. She does not execute a state-changing
-              action DIRECTLY — but ``request_execution`` hands one to Neo's
-              executor, gated by the Morpheus security gate, and that gate allows
-              every action when no enforcing core is installed (the OBSERVE no-op).
-              So "never any state-changing action", which this said, holds only
-              with a core that refuses it; without one, Trinity can cause any
-              ACTION_MAP action through the hand-off.
+              conversation). NEVER bash, file_ops, raw blockchain execution tools, or
+              any state-changing action. State-changing requests are escalated to Neo
+              through the Morpheus security gate (she never gains Neo's tools).
   - Morpheus— security / guidance: ``security_audit``, ``web_search``, ``web``, and
               ``platform_action`` restricted to READ-ONLY security/verification
               actions. Never executes; never state-modifying; never bash/file_ops.

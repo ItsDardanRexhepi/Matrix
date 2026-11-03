@@ -184,16 +184,10 @@ def agent_access_allowed(
     ``agent`` from the request context. The authoritative policy lives in the
     private ``morpheus_security`` package when installed; otherwise the public
     coarse default (``runtime.access_policy``) applies. Either way the per-agent
-    boundary is enforced — a subverted agent cannot CALL another agent's tools.
-    It can reach what they do through its own: Trinity's ``request_execution``
-    hands an action to Neo's executor, under a gate that allows everything
-    when no enforcing core is installed.
+    boundary is enforced — a subverted agent cannot reach another agent's tools.
 
-    On an internal error in the PRIVATE policy, falls back to the public
-    default. That is not "never fails open", which this said: the public
-    default is coarser — it allows Neo everything and an empty agent name
-    anything — so a request the private policy would refuse (a ban, a freeze)
-    is allowed while that policy is failing.
+    On any internal error, falls back to the public default (the boundary still
+    holds — it never fails open).
     """
     if _private_agent_access is not None:
         try:

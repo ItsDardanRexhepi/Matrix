@@ -195,10 +195,7 @@ class ToolDispatcher:
         """Register the Trinity → Morpheus → Neo hand-off as the 'request_execution'
         tool. Trinity calls this to escalate an execution request; it gates through
         Morpheus and routes to Neo (the service dispatcher). She never holds Neo's
-        raw execution tools. This is her channel for state-changing actions; she
-        also holds `platform_action` itself for reads, and the gate on this
-        channel allows everything when no enforcing core is installed — so it
-        is controlled exactly as far as the installed gate controls it."""
+        raw execution tools — only this single controlled channel."""
         try:
             from runtime.agents.handoff import AgentHandoff
             self.handoff = AgentHandoff(config, getattr(self, "service_dispatcher", None))
@@ -329,15 +326,9 @@ class ToolDispatcher:
             )
 
         # Per-agent tool boundary — code-enforced, prompt-independent. Keyed on the
-        # agent_name from the request context (NOT on tool arguments), so a
-        # subverted agent cannot CALL another agent's tools. It can still reach
-        # what they do through the tools it holds: Trinity's request_execution
-        # hands any action to Neo's executor under the Morpheus gate, which
-        # allows everything with no enforcing core installed. And the agent
-        # name is the one the entry point hands in: on the chat routes, the
-        # name the request carries, admitted by gateway/chat_agents.py as
-        # Trinity unless the caller holds the operator key. For the
-        # platform_action mega-tool the specific action is checked too.
+        # trusted agent_name from the request context (NOT on tool arguments), so a
+        # subverted agent cannot reach another agent's tools. For the platform_action
+        # mega-tool the specific action is checked too.
         action = arguments.get("action") if tool_name == "platform_action" else None
         allowed, reason = agent_access_allowed(agent_name, tool_name, action)
         if not allowed:

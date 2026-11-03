@@ -46,12 +46,12 @@
 | POST | `/api/v1/fundraising/campaign/create` | `_handle_fundraising_create` | service_routes.py:273 |  |
 | POST | `/api/v1/fundraising/contribute` | `_handle_fundraising_contribute` | service_routes.py:274 |  |
 | POST | `/api/v1/gaming/register` | `_handle_gaming_register` | service_routes.py:302 |  |
-| GET | `/api/v1/governance/daos/{daoId}/proposals` | `_handle_dao_proposals` | service_routes.py:2841 |  |
+| GET | `/api/v1/governance/daos/{daoId}/proposals` | `_handle_dao_proposals` | service_routes.py:2837 |  |
 | POST | `/api/v1/governance/multisig/approve` | `_handle_multisig_approve` | service_routes.py:370 |  |
 | POST | `/api/v1/governance/proposal/create` | `_handle_governance_create` | service_routes.py:260 |  |
 | POST | `/api/v1/governance/snapshot/vote` | `_handle_snapshot_vote` | service_routes.py:371 |  |
 | POST | `/api/v1/governance/vote` | `_handle_governance_vote` | service_routes.py:261 |  |
-| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:2831 |  |
+| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:2827 |  |
 | POST | `/api/v1/iap/asn` | `handle_iap_asn` | server.py:2629 | ✅ |
 | POST | `/api/v1/iap/verify` | `handle_iap_verify` | server.py:2628 | ✅ |
 | POST | `/api/v1/identity/create` | `_handle_did_create` | service_routes.py:235 |  |
@@ -66,14 +66,14 @@
 | POST | `/api/v1/intent/resolve` | `_handle_intent_resolve` | service_routes.py:379 |  |
 | GET | `/api/v1/intent/summary/{plan_id}` | `_handle_intent_summary` | service_routes.py:381 |  |
 | POST | `/api/v1/ip/register` | `_handle_ip_register` | service_routes.py:305 |  |
-| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:2835 |  |
-| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:2837 |  |
+| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:2831 |  |
+| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:2833 |  |
 | POST | `/api/v1/loyalty/earn` | `_handle_loyalty_earn` | service_routes.py:280 |  |
 | POST | `/api/v1/loyalty/redeem` | `_handle_loyalty_redeem` | service_routes.py:281 |  |
 | POST | `/api/v1/marketplace/buy` | `_handle_marketplace_buy` | service_routes.py:257 |  |
 | POST | `/api/v1/marketplace/list` | `_handle_marketplace_list` | service_routes.py:256 |  |
-| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:2821 |  |
-| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:2822 |  |
+| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:2817 |  |
+| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:2818 |  |
 | POST | `/api/v1/nft/batch-mint` | `_handle_nft_batch_mint` | service_routes.py:338 |  |
 | POST | `/api/v1/nft/bridge` | `_handle_nft_bridge` | service_routes.py:340 |  |
 | POST | `/api/v1/nft/collection/create` | `_handle_nft_collection_create` | service_routes.py:229 |  |
@@ -134,19 +134,19 @@
 | GET | `/badge/{badge_id}/embed` | `handle_badge_embed` | server.py:2688 |  |
 | GET | `/badge/{badge_id}/status` | `handle_badge_status` | server.py:2687 |  |
 | GET | `/badges` | `handle_badges_list` | server.py:2689 | ✅ |
-| POST | `/bridge/v1/action` | `execute_action` | bridge.py:667 |  |
-| POST | `/bridge/v1/chat` | `chat` | bridge.py:665 | ✅ |
-| GET | `/bridge/v1/components` | `get_components` | bridge.py:679 |  |
-| GET | `/bridge/v1/components/manifest` | `get_components_manifest` | bridge.py:680 |  |
-| GET | `/bridge/v1/components/{component_id}` | `get_component` | bridge.py:681 |  |
-| GET | `/bridge/v1/config` | `get_config` | bridge.py:674 |  |
-| GET | `/bridge/v1/dashboard` | `get_dashboard` | bridge.py:677 |  |
-| POST | `/bridge/v1/push/register` | `register_push` | bridge.py:672 |  |
-| GET | `/bridge/v1/services` | `get_services` | bridge.py:675 |  |
-| POST | `/bridge/v1/session/create` | `create_session` | bridge.py:662 |  |
-| POST | `/bridge/v1/session/resume` | `resume_session` | bridge.py:663 |  |
-| POST | `/bridge/v1/wallet/link` | `link_wallet` | bridge.py:669 |  |
-| GET | `/bridge/v1/wallet/status` | `wallet_status` | bridge.py:670 |  |
+| POST | `/bridge/v1/action` | `execute_action` | bridge.py:664 |  |
+| POST | `/bridge/v1/chat` | `chat` | bridge.py:662 | ✅ |
+| GET | `/bridge/v1/components` | `get_components` | bridge.py:676 |  |
+| GET | `/bridge/v1/components/manifest` | `get_components_manifest` | bridge.py:677 |  |
+| GET | `/bridge/v1/components/{component_id}` | `get_component` | bridge.py:678 |  |
+| GET | `/bridge/v1/config` | `get_config` | bridge.py:671 |  |
+| GET | `/bridge/v1/dashboard` | `get_dashboard` | bridge.py:674 |  |
+| POST | `/bridge/v1/push/register` | `register_push` | bridge.py:669 |  |
+| GET | `/bridge/v1/services` | `get_services` | bridge.py:672 |  |
+| POST | `/bridge/v1/session/create` | `create_session` | bridge.py:659 |  |
+| POST | `/bridge/v1/session/resume` | `resume_session` | bridge.py:660 |  |
+| POST | `/bridge/v1/wallet/link` | `link_wallet` | bridge.py:666 |  |
+| GET | `/bridge/v1/wallet/status` | `wallet_status` | bridge.py:667 |  |
 | POST | `/certification/start` | `handle_cert_start` | server.py:2695 |  |
 | POST | `/certification/submit` | `handle_cert_submit` | server.py:2696 |  |
 | GET | `/certification/tracks` | `handle_cert_tracks` | server.py:2694 |  |

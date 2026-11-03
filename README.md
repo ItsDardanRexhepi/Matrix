@@ -14,7 +14,7 @@ On The Matrix, if you can think it, you can achieve it.
 
 What you can do on The Matrix:
 
-- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block (unless the operator of the gateway you use has switched on automatic deployment, which is off by default)
+- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
 - Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
 - Create NFTs and register your creative work with an on-chain royalty that every marketplace honouring the ERC-2981 standard pays you on resale
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
@@ -188,7 +188,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,565 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,561 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -234,13 +234,7 @@ check behind it:
   generates and audits Solidity; deploying it is your step, with your
   wallet. Every surface that once offered to do it for you — the HTTP
   route, the agent tool, the skill — answers plainly that it does not,
-  and a test walks those surfaces so the offer cannot return quietly.
-  One path does deploy, and it belongs to whoever runs the gateway, not
-  to a caller: with `conversion.auto_deploy` on — off by default, and no
-  shipped config turns it on — a conversion whose audit passed and whose
-  functions are all implemented is deployed with the platform's key.
-  Every sentence in the code that used to say the platform cannot deploy
-  now says that instead
+  and a test walks those surfaces so the offer cannot return quietly
 - **An audit that could not run is not a pass.** Source with no
   executable function body comes back `not_auditable`, never "no
   vulnerabilities detected", and no security badge is issued on it. The

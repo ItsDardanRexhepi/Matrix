@@ -64,47 +64,31 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "deploy_contract": {
         "unavailable": True,
         "description": (
-            # DEFECT HISTORY: none. This entry never fabricated anything, and
-            # it is one of the two worked examples the sanitisation rule was
-            # derived FROM.
+            # DEFECT HISTORY: none. This entry never fabricated anything —
+            # The Matrix has genuinely never deployed contracts, and this
+            # description has always stated the boundary rather than a post-
+            # mortem. It is one of the two worked examples the sanitisation rule
+            # was derived FROM.
             #
-            # WHAT IS TRUE, STATED NARROWLY. It used to say The Matrix "has
-            # genuinely never deployed contracts" and that "if deployment is
-            # ever built" this entry would gain an action. Deployment IS built,
-            # in one place: with `conversion.auto_deploy` on,
-            # ContractConversionService compiles a conversion whose audit
-            # passed and whose declared functions are all implemented, and
-            # broadcasts its constructor with the platform's key. It is off by
-            # default and no shipped config turns it on. What does not exist is
-            # a deployment ON REQUEST: no action dispatches one and
-            # `smart_contracts.deploy` answers not_implemented. That is what
-            # this entry is about, so it stays `unavailable`.
-            #
-            # RE-ENABLE BAR: a deploy action that a caller can request, gated
-            # like the conversion path is, and signed by the caller's own
-            # wallet rather than the platform's.
-            "NOT AVAILABLE — The Matrix does not deploy a contract on request. "
-            "It generates Solidity scaffolding from a structured declaration; "
-            "deploying it is a separate step the user performs with their own "
-            "tooling and signer. The one exception is operator-controlled: with "
-            "conversion.auto_deploy on (off by default), a conversion whose "
-            "audit passes is deployed with the platform's key."
+            # RE-ENABLE BAR: there is nothing to re-enable. If deployment is
+            # ever built, this stops being an `unavailable` entry entirely and
+            # gains an action_name.
+            "NOT AVAILABLE — The Matrix does not deploy contracts. It generates "
+            "Solidity scaffolding from a structured declaration; deploying it is "
+            "a separate step the user performs with their own tooling and signer."
         ),
         "required_params": [],
         "optional_params": [],
         "keywords": ["deploy contract", "deploy smart contract", "publish contract", "launch contract", "put contract on chain", "deploy to ethereum", "deploy to solana"],
         "follow_up": (
-            "I can't deploy a contract on request — that isn't supported, and "
-            "I won't pretend otherwise. What I can do is convert your contract "
-            "into Solidity for you, which you can then deploy with your own "
-            "wallet and tooling. (If this platform's operator has turned on "
-            "automatic deployment for conversions, a conversion that passes "
-            "its audit is deployed with the platform's key instead.) Want me "
-            "to do that?"
+            "I can't deploy contracts — that isn't supported yet, and I won't "
+            "pretend otherwise. What I can do is convert your contract into "
+            "Solidity for you, which you can then deploy with your own wallet "
+            "and tooling. Want me to do that?"
         ),
         "example_conversation": (
             "User: Deploy my token contract to Ethereum\n"
-            "Trinity: I can't deploy a contract on request — that isn't supported. "
+            "Trinity: I can't deploy contracts yet — that isn't supported. "
             "I can convert your contract to Solidity so you can deploy it "
             "yourself. Want me to do that?"
         ),
