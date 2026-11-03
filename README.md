@@ -330,8 +330,12 @@ check behind it:
   else gives nothing back, and neither does a send whose receipt is not
   waited for, as some services broadcast and return. Every web3
   connection the running platform opens sends a raw transaction once and
-  never retries it. An
-  operator who configures no cap keeps the previous behaviour
+  never retries it. A cap that is not a finite, non-negative number of
+  dollars is read as zero, and an action the allowlist refuses is refused
+  before it is priced, so a price feed that is down does not turn that
+  refusal into a 503. An operator who configures no cap has nothing
+  metered; the request is still held to the identity bound for it, and a
+  body `sender` that contradicts that identity is refused
 - **The deployment tools will not put the old paymaster on a chain.** The
   paymaster the platform uses is the ERC-4337 verifying one, which pays
   gas out of its own EntryPoint deposit. Its predecessor can send any

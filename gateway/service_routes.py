@@ -1186,8 +1186,10 @@ class ServiceRoutes:
             signature actually exists, so a signing failure does not charge
             anyone for gas that was never sponsored.
 
-        An operator with no `daily_cap_usd` configured sees the previous
-        behaviour exactly.
+        An operator with no `daily_cap_usd` configured has nothing metered.
+        The request is still bound to the identity bound for it — a body
+        `sender` that contradicts it is refused, cap or no cap — and the
+        allowlist, when one is configured, is read before anything is priced.
         """
         from gateway.paymaster import (
             compute_paymaster_digest, sign_digest, build_paymaster_and_data,
@@ -1258,6 +1260,17 @@ class ServiceRoutes:
                     "paymaster sign: declared action_type %r; the call data "
                     "performs %s, and the call data decides",
                     str(declared)[:64], summarize_labels(actions))
+
+        # The allowlist first: an action it refuses is refused whatever it
+        # costs, and pricing it first answered 503 "gas price unavailable" —
+        # a refusal the client is told to retry — whenever the feed was down.
+        refused = policy.allowlist_refusal(actions, identity=sender)
+        if refused is not None:
+            logger.info("paymaster sponsorship denied: %s", refused.code)
+            return web.json_response(
+                {"error": refused.reason, "code": refused.code,
+                 "policy": refused.to_dict()},
+                status=403)
 
         # Price this request before metering it. A cap denominated in dollars
         # cannot be enforced against an unknown dollar amount, so an unavailable
