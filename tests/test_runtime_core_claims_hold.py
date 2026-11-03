@@ -108,7 +108,8 @@ async def test_another_agents_registration_does_not_verify_this_one(monkeypatch)
         "data": _data("agent_registration", "trinity")})
     out = json.loads(await ident.execute(action="verify", agent_name="neo",
                                          attestation_uid="0x" + "cd" * 32))
-    assert out["verified"] is False and "trinity" in out["reason"]
+    assert out["verified"] is False
+    assert "not a registration of agent 'neo'" in out["reason"], out["reason"]
 
 
 async def test_the_agents_own_registration_still_verifies(monkeypatch):

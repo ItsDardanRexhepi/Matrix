@@ -221,7 +221,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 7,186 tests, run against the versions
+automated suite of 7,185 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -913,7 +913,17 @@ Some operations carry a platform fee: the platform contracts pay theirs
 to each contract's `platformFeeRecipient`, which `scripts/deploy_all.py`
 sets to the configured NeoSafe address. The fees the code is known to
 take, with their rates, are listed under Fees in `docs/blockchain.md`,
-checked against the code by a test that finds a fee by its name. Capabilities return
+checked against the code by a test that finds a fee by its name.
+
+Not every transaction you take part in is the platform's to sign: some
+capabilities prepare an unsigned transaction for your own wallet to sign
+and send (advanced governance, auctions), and your wallet pays that gas.
+Fees that are not gas are shown where they apply too: the marketplace
+records a platform fee on a sale (owed to the platform wallet; the sale
+moves nothing, so nothing collects it), and a DEX pool deducts its
+liquidity-provider fee from a swap's input.
+
+Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 

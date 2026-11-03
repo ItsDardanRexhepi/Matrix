@@ -63,7 +63,9 @@ async def test_a_replay_under_another_session_does_not_rebind_the_lineage(gatewa
                               json={"signedTransaction": jws})).status == 200
     session["address"] = "0xREPLAYER"
     r = await client.post("/api/v1/iap/verify", json={"signedTransaction": jws})
-    assert (await r.json())["replay"] is True
+    # The purchase belongs to the account that verified it first: another
+    # account's session presenting the same signed transaction is refused.
+    assert r.status == 409 and (await r.json())["error"] == "bound_to_another_account"
 
     ent = await store.entitlement("1000000000000001")
     assert ent["user_key"] == "0xBUYER", (

@@ -56,7 +56,7 @@ def test_the_marketplace_example_narrates_no_escrow(monkeypatch, capsys):
     for phrase in ("Released atomically", "Buyer now owns template",
                    "atomic escrow", "Purchase completed!", "payment and transfer in one tx"):
         assert phrase not in out, f"the example still prints {phrase!r}"
-    assert "not performed" in out
+    assert "no payment or asset moves on chain" in out
 
 
 def test_the_attestation_example_does_not_promise_every_action():

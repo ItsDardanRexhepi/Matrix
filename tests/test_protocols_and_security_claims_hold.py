@@ -4,9 +4,12 @@ Built true:
   * Friday's "critical events always notify" — suppression and cooldown were
     checked first, so a critical event in a suppressed category, or inside a
     cooldown, was dropped;
-  * the no-op gate "logs that it ran" — it made no logger call at all;
   * the morpheus_triggers guard "pinned so a cleanup cannot silently drop it"
     — the pinning test named four of its nine entries.
+
+The no-op gate's "logs that it ran" is held elsewhere, the other way: it logs
+nothing per call and its texts say so, measured in both directions by
+tests/test_the_security_layers_are_described_as_they_run.py.
 
 Corrected where the sentence was wrong: "only 'not installed' degrades" (an
 ImportError inside an installed core does too), the deletion intents that
@@ -23,7 +26,6 @@ keeps is the owner's decision, and they stay as written until he makes it.
 
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 
@@ -53,20 +55,6 @@ async def test_a_critical_event_inside_a_cooldown_still_notifies():
     event = {"category": "wallet", "urgency": "critical", "id": "e2"}
     assert await f.should_notify(event) is True
     assert await f.should_notify(event) is True, "a second critical event was held by a cooldown"
-
-
-# ── the no-op gate ─────────────────────────────────────────────────────────
-
-async def test_the_noop_gate_logs_each_evaluation(caplog):
-    import runtime.security as seam
-
-    if seam.SECURITY_BACKEND != "noop" or not hasattr(seam, "_NoopMorpheus"):
-        return  # a checkout with the private core installed has no no-op to test
-    with caplog.at_level(logging.DEBUG, logger="runtime.security"):
-        out = await seam._NoopMorpheus().evaluate({"action_type": "transfer"}, {})
-    assert out["allow"] is True
-    assert any("observe no-op evaluated" in r.getMessage() for r in caplog.records), (
-        "the no-op gate says it logs that it ran, and it logged nothing")
 
 
 # ── the guard pin ──────────────────────────────────────────────────────────

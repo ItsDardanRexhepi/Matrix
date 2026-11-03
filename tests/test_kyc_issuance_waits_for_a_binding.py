@@ -142,5 +142,5 @@ def test_the_readme_and_the_capability_map_say_it_is_refused():
     assert "A KYC credential is issued when its receipt confirms it." not in readme
     assert "no KYC credential is issued at all" in readme
     row = next(line for line in Path("docs/COMPLETE_CAPABILITY_MAP.md").read_text().splitlines()
-               if line.startswith("| Issue KYC Credential"))
-    assert "Refused" in row, row
+               if "Issue KYC Credential" in line)
+    assert "REFUSED" in row and "ties that applicant to the wallet" in row, row

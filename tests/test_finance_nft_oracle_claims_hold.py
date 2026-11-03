@@ -12,7 +12,8 @@ Built true:
   * the DEX's "users pay nothing" — the pool's LP fee was taken while the
     trade said 0, and a swap that moved nothing said `confirmed`;
   * NFT lending: `onBehalfOf` "must be the platform account", and a caller
-    could name any beneficiary or breeding contract;
+    could name any beneficiary; breed_nft's contract override is named in the
+    module docstring, and a user session is refused it;
   * a quote for a predicate the platform would refuse now says so;
   * mint's royalty/rights writes are caught when refused, after the mint;
   * the oracle cache "never caches VRF" whatever the config, and a miss is
@@ -131,7 +132,7 @@ async def test_a_swap_says_it_moved_nothing_and_names_the_pool_fee(monkeypatch):
     trade = await dex.swap("0xT", "ETH", "USDC", 1.0, slippage=5.0)
     assert trade["status"] == "recorded_unsettled" and trade["value_moved"] is False
     assert trade["platform_fee"] == 0.0
-    assert sum(f["amount"] for f in trade["lp_fees"]) > 0
+    assert sum(f["amount"] for f in trade["pool_fees"]) > 0
     assert "user_fee" not in trade
     assert "Gas costs are absorbed by the platform. Users pay nothing for swaps." \
         not in _prose(DEXService.__doc__)
@@ -158,13 +159,16 @@ async def test_a_loan_cannot_name_another_beneficiary(monkeypatch):
     assert out.get("refused") is True
 
 
-async def test_a_caller_cannot_choose_the_breeding_contract(monkeypatch):
-    from runtime.blockchain.services.nft_lending.service import NFTLendingService
+def test_the_breeding_override_is_named_and_refused_to_a_session():
+    """breed_nft takes its contract from the caller as well as from config, so
+    the config gate is not the whole story: the module docstring says so, and
+    a user session is refused the action (the operator's key keeps it)."""
+    from runtime.access_policy import REFUSED_TO_A_SESSION
+    from runtime.blockchain.services.nft_lending import service as lending
 
-    svc = NFTLendingService({"services": {"nft_lending": {
-        "breed_contract": "0x" + "04" * 20}}})
-    out = await svc.breed_nft(parent_a=1, parent_b=2, breed_contract="0x" + "99" * 20)
-    assert out.get("refused") is True
+    assert ("nft_lending", "breed_nft") in REFUSED_TO_A_SESSION
+    doc = _prose(lending.__doc__)
+    assert "breed_nft`` also takes a ``breed_contract`` from its caller" in doc
 
 
 def test_the_platform_is_named_as_the_sender_not_a_sponsor():
@@ -249,18 +253,19 @@ def test_the_gateway_does_not_claim_to_be_the_only_entry_point():
 
 # ── TBA, stablecoin ────────────────────────────────────────────────────────
 
-async def test_a_tba_the_operator_did_not_list_is_not_operated(monkeypatch):
+async def test_no_token_bound_account_is_operated_on_a_request(monkeypatch):
+    """execute_as_tba signed a call the request composed, from the platform's
+    wallet: it is refused for every account, before anything is built or
+    signed, whatever the operator's config lists."""
     from runtime.blockchain.services.tba.service import TokenBoundAccountService as TBAService
 
     listed = "0x" + "06" * 20
-    svc = TBAService({"services": {"tba": {"executable_accounts": [listed]}}})
-    monkeypatch.setattr(svc._web3, "available", True)
-    out = await svc.execute_as_tba(account="0x" + "07" * 20, to="0x" + "08" * 20, value=1)
-    assert out.get("refused") is True
-    svc2 = TBAService({"services": {"tba": {}}})
-    monkeypatch.setattr(svc2._web3, "available", True)
-    out2 = await svc2.execute_as_tba(account=listed, to="0x" + "08" * 20)
-    assert out2.get("status") == "not_deployed"
+    for cfg in ({"executable_accounts": [listed]}, {}):
+        svc = TBAService({"services": {"tba": cfg}})
+        monkeypatch.setattr(svc._web3, "available", True)
+        for account in (listed, "0x" + "07" * 20):
+            out = await svc.execute_as_tba(account=account, to="0x" + "08" * 20, value=1)
+            assert out.get("status") == "refused", out
 
 
 def test_no_environment_switch_opens_the_test_mint(monkeypatch):

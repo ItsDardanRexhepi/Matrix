@@ -241,10 +241,10 @@ async def test_an_update_cannot_smuggle_a_second_copy_of_a_hash():
 # ── real estate ────────────────────────────────────────────────────────────
 
 async def test_the_escrow_history_holds_only_legal_transitions(tmp_path):
-    from tests.test_real_estate_service import BUYER, ESCROW, _ready_purchase, _settled_receipt
+    from tests.test_real_estate_service import _ready_purchase, _settled_receipt
 
     svc, prop, eid = await _ready_purchase(tmp_path)
-    svc._web3.w3.eth._receipt = _settled_receipt(eid, BUYER, ESCROW)
+    svc._web3.w3.eth._receipt = await _settled_receipt(svc, eid)
     result = await svc.confirm_settlement(eid, "0x" + "ee" * 32)
     esc = result["escrow"]
     states = [h["state"] for h in esc["history"]]

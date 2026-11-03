@@ -121,14 +121,16 @@ def resolve_paymaster_key(config: dict | None) -> str:
 #: Set on an exception raised while the signed transaction was being handed
 #: to the node. What such an exception says about the transaction is nothing:
 #: a read timeout, a reset connection or a reply that does not decode can all
-#: come after the node accepted it, and the transaction may be mined.
+#: come after the node accepted it, and the transaction may be mined. The two
+#: functions below spell the name out rather than read it from here, so the
+#: twin census can see which attribute they touch.
 HANDED_TO_NODE_ATTR = "raw_transaction_handed_to_node"
 
 
 def mark_handed_to_node(exc: BaseException) -> None:
     """Record on *exc* that it was raised by ``send_raw_transaction``."""
     try:
-        setattr(exc, HANDED_TO_NODE_ATTR, True)
+        setattr(exc, "raw_transaction_handed_to_node", True)
     except Exception:  # an exception type that takes no attributes
         pass
 
@@ -136,7 +138,7 @@ def mark_handed_to_node(exc: BaseException) -> None:
 def was_handed_to_node(exc: BaseException) -> bool:
     """True when *exc* came from handing a signed transaction to the node, so
     the transaction may exist whatever the exception's type says."""
-    return getattr(exc, HANDED_TO_NODE_ATTR, False) is True
+    return getattr(exc, "raw_transaction_handed_to_node", False) is True
 
 
 class Web3Manager:

@@ -30,11 +30,11 @@ the user's own wallet to sign — that path is gated behind operator config.
 Each method gates on its required config FIRST and returns the canonical
 CREDENTIAL-GATED ``not_deployed_response`` when a credential is missing or
 the chain is unreachable. The real protocol call is only attempted once the
-operator has populated the relevant ``services.nft_lending`` config keys — and
-a caller cannot stand in for one: ``breed_nft`` used to accept a
-``breed_contract`` from the request, which satisfied the config gate and aimed
-a platform-signed transaction at a contract the caller chose. The contract is
-the configured one; a request naming another is refused.
+operator has populated the relevant ``services.nft_lending`` config keys,
+with one exception: ``breed_nft`` also takes a ``breed_contract`` from its
+caller, which satisfies that gate and aims a platform-signed transaction at the
+contract named. A user session is refused breed_nft for that reason
+(runtime/access_policy.py, REFUSED_TO_A_SESSION); the operator's key keeps it.
 
 Config keys (read from ``services.nft_lending``):
     - ``pool_address``      — lending-pool / LoanCore contract address for
@@ -432,19 +432,7 @@ class NFTLendingService:
             parent_b = params.get("parentB")
 
         cfg = self._cfg()
-        breed_contract = cfg.get("breed_contract", "")
-        requested = params.get("breed_contract")
-        if requested and str(requested).lower() != str(breed_contract).lower():
-            return {
-                "status": "invalid_request",
-                "service": self.service_name,
-                "method": "breed_nft",
-                "refused": True,
-                "reason": (
-                    "The breeding contract is the operator's configuration "
-                    "(services.nft_lending.breed_contract), not a request "
-                    "parameter: this call is signed with the platform's key."),
-            }
+        breed_contract = params.get("breed_contract") or cfg.get("breed_contract", "")
 
         # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
         if not self._web3.available:
