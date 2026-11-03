@@ -59,8 +59,11 @@ from typing import Any
 
 from runtime.blockchain.web3_manager import (
     Web3Manager,
+    handed_tx_hash,
     is_placeholder_value,
     not_deployed_response,
+    unconfirmed_broadcast,
+    was_handed_to_node,
 )
 from runtime.blockchain.services.restaking._guards import (
     require_restaking_enabled,
@@ -222,7 +225,25 @@ class RestakingService:
 
     @staticmethod
     def _error(method: str, exc: Exception) -> dict:
-        """Honest error envelope — never fabricates a tx hash."""
+        """Honest error envelope — never fabricates a tx hash.
+
+        Except where the hash is the transaction's own. A send that raised
+        AFTER its signed bytes reached the node (`was_handed_to_node`: a read
+        timeout, a reset connection, a reply that does not decode) says
+        nothing about the transaction, which may be mined. Answering it
+        ``error`` had the dispatcher record "ACTION DECLINED" for it; it is
+        answered as the broadcast it may be (`unconfirmed_broadcast`), under
+        the hash of the transaction that was signed, so the dispatcher records
+        a broadcast, as it does when a hash came back and no receipt did.
+        """
+        if was_handed_to_node(exc):
+            return unconfirmed_broadcast(handed_tx_hash(exc), base={
+                "service": RestakingService.service_name,
+                "method": method,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }, note=("The node's answer to the send was lost or could not be "
+                     "read, so whether it took the transaction is not known."))
         return {
             "status": "error",
             "service": RestakingService.service_name,

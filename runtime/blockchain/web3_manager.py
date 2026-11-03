@@ -126,13 +126,29 @@ def resolve_paymaster_key(config: dict | None) -> str:
 #: twin census can see which attribute they touch.
 HANDED_TO_NODE_ATTR = "raw_transaction_handed_to_node"
 
+#: Set beside it: the hash of the transaction whose bytes were handed over,
+#: taken from the signed transaction before the send, in the form a successful
+#: send returns its hash. It is what makes a transaction that may be mined
+#: checkable when the node's answer is lost.
+HANDED_TX_HASH_ATTR = "raw_transaction_hash"
 
-def mark_handed_to_node(exc: BaseException) -> None:
-    """Record on *exc* that it was raised by ``send_raw_transaction``."""
+
+def mark_handed_to_node(exc: BaseException, tx_hash: str = "") -> None:
+    """Record on *exc* that it was raised by ``send_raw_transaction``, and,
+    when known, the hash of the signed transaction that was being sent."""
     try:
         setattr(exc, "raw_transaction_handed_to_node", True)
+        if tx_hash:
+            setattr(exc, "raw_transaction_hash", tx_hash)
     except Exception:  # an exception type that takes no attributes
         pass
+
+
+def handed_tx_hash(exc: BaseException) -> str:
+    """The hash of the signed transaction *exc* was raised while handing to
+    the node, or "" when it carries none."""
+    value = getattr(exc, "raw_transaction_hash", "")
+    return value if isinstance(value, str) else ""
 
 
 def was_handed_to_node(exc: BaseException) -> bool:
@@ -413,6 +429,7 @@ class Web3Manager:
 
                 signed = account.sign_transaction(tx_to_sign)
                 raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+                signed_hash = getattr(signed, "hash", None)
                 # Whatever the node answers, the signature's ledger row is not
                 # closed here. A refusal can be another backend's, relayed for
                 # bytes this one took, and a lookup by hash can be answered by a
@@ -423,7 +440,8 @@ class Web3Manager:
                 try:
                     tx_hash = self.w3.eth.send_raw_transaction(raw)
                 except Exception as exc:
-                    mark_handed_to_node(exc)
+                    mark_handed_to_node(exc, "" if signed_hash is None else (
+                        signed_hash.hex() if hasattr(signed_hash, "hex") else str(signed_hash)))
                     raise
                 return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             except Exception as exc:
