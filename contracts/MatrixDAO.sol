@@ -146,7 +146,8 @@ contract MatrixDAO is ReentrancyGuard, Ownable {
      * @notice Withdraw deposited ETH. Voting power was bought with ETH that could
      *         never leave (audit entry B3-DAO-OWNER-SWEEP: no exit even from an
      *         honest owner). Snapshots make this safe at any time: votes already
-     *         cast on a live proposal were counted at its snapshot.
+     *         cast on a live proposal were counted at its snapshot, and a vote
+     *         cast after a withdrawal weighs only what stayed deposited.
      */
     function withdrawVotingPower(uint256 amount) external nonReentrant {
         require(amount > 0, "Must withdraw > 0");
@@ -221,8 +222,16 @@ contract MatrixDAO is ReentrancyGuard, Ownable {
         require(!hasVoted[proposalId][msg.sender], "Already voted");
         require(support <= 2, "Invalid support value");
 
-        uint256 weight = getPastVotes(msg.sender, snapshotBlockOf[proposalId]);
-        require(weight > 0, "No voting power at snapshot");
+        uint256 snapshot = snapshotBlockOf[proposalId];
+        uint256 atSnapshot = getPastVotes(msg.sender, snapshot);
+        require(atSnapshot > 0, "No voting power at snapshot");
+        // The least the voter held from the snapshot through this vote. At the
+        // snapshot alone, power deposited in the block before a proposal and
+        // withdrawn in the block of it kept its whole weight: borrowed ETH held
+        // across one block boundary outvoted the depositors whose ETH the
+        // proposal pays out, with nothing left at risk.
+        uint256 weight = _leastHeldSince(_checkpoints[msg.sender], snapshot, atSnapshot);
+        require(weight > 0, "Voting power withdrawn since the snapshot");
 
         // Apply quadratic voting if selected
         uint256 effectiveWeight = weight;
@@ -354,6 +363,21 @@ contract MatrixDAO is ReentrancyGuard, Ownable {
             ckpts[n - 1].votes = uint192(newValue);
         } else {
             ckpts.push(Checkpoint({fromBlock: uint64(block.number), votes: uint192(newValue)}));
+        }
+    }
+
+    /// @dev The least of `atSnapshot` and every checkpoint written after
+    ///      `snapshot`, this block's included (a balance only these write).
+    ///      Walks the voter's own checkpoints since the snapshot, newest first;
+    ///      only the voter's own deposits and withdrawals add to them.
+    function _leastHeldSince(Checkpoint[] storage ckpts, uint256 snapshot, uint256 atSnapshot)
+        internal view returns (uint256 least)
+    {
+        least = atSnapshot;
+        for (uint256 i = ckpts.length; i > 0; i--) {
+            Checkpoint storage c = ckpts[i - 1];
+            if (c.fromBlock <= snapshot) break;
+            if (c.votes < least) least = c.votes;
         }
     }
 

@@ -1128,7 +1128,10 @@ launch:
 - **Foundry contract tests** — `foundry.toml` pins solc 0.8.20 and
   `scripts/build-contracts.sh` is a one-shot bootstrap that installs
   forge-std + OpenZeppelin, compiles, and runs every test under
-  `contracts/test/`.
+  `contracts/test/`. Among what they hold: `MatrixDAO` weighs a vote by the
+  least voting power the voter held from the proposal's snapshot through
+  the vote, so ETH deposited in the block before a proposal and withdrawn
+  at once does not vote on it.
 
 ```bash
 # TLS-terminated production stack (gateway + Caddy)
