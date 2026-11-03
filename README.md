@@ -628,7 +628,10 @@ check behind it:
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and
-  removes nothing, rather than reporting success over data it left behind
+  removes nothing, rather than reporting success over data it left behind.
+  The sign-in goes with it: every session of the account, on every device,
+  and the Apple sign-in record with the wallet linked to it, so the same
+  Apple ID signing in again is a new user
 - **A payment nobody confirmed is not a payment.** A subscription
   renewal is booked only when the payment gateway says plainly that the
   charge went through, and a gateway is not this platform: the rule that

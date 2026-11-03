@@ -275,6 +275,12 @@ class AppleUserStore:
         )
         return is_new
 
+    async def remove(self, sub: str) -> None:
+        """Forget *sub*: its first sign-in, its last and the wallet linked to it
+        (account deletion; the next sign-in with that Apple ID is a new user)."""
+        await self._db.execute("DELETE FROM apple_users WHERE sub = ?", (sub,))
+        self._cache.pop(sub, None)
+
     async def link_wallet(self, sub: str, wallet_address: str) -> None:
         """Bind a wallet the user has proven (SIWE) to their Apple identity,
         in the one spelling (runtime/auth/identity.py)."""

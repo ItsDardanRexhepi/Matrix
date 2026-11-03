@@ -1119,17 +1119,19 @@ class GatewayServer:
         # client's AuthResponse.walletAddress is non-optional so return "" when
         # none exists yet.
         user_key = f"apple:{sub}"
-        # T2.4: first sign-in and the linked wallet are read back from the
-        # apple_users table — before this, isNewUser was always true and
-        # walletAddress always "" (a get_by_address the store never had).
-        is_new_user = await self.apple_users.touch(sub)
-        wallet_address = self.apple_users.wallet_for(sub)
-
         token = create_session_token()
         now = time.time()
         expires_at = now + self._wallet_session_ttl
         await self.wallet_sessions.add(
             token=token, address=user_key, issued_at=now, expires_at=expires_at)
+        # T2.4: first sign-in and the linked wallet are read back from the
+        # apple_users table — before this, isNewUser was always true and
+        # walletAddress always "" (a get_by_address the store never had).
+        # Recorded once the session exists: recorded first, a sign-in whose
+        # session could not be stored answered 500 and its retry was told it
+        # was not new.
+        is_new_user = await self.apple_users.touch(sub)
+        wallet_address = self.apple_users.wallet_for(sub)
 
         return web.json_response({
             "token": token,
@@ -1310,6 +1312,25 @@ class GatewayServer:
                 "account delete: push-token removal failed for %s; the account's "
                 "devices are still registered and the deletion is not complete",
                 subject)
+            return web.json_response(
+                {"success": False, "error": "storage failure"}, status=503)
+
+        # The sign-in itself: the Apple user record (its first sign-in and the
+        # wallet linked to it) and every other session of the account. Left
+        # behind, the next sign-in with the same Apple ID was "not new" and
+        # resolved to the deleted account's wallet, and a second device stayed
+        # signed in until its token expired. Before the presented session, so
+        # a failure here still leaves the client a credential to retry with.
+        try:
+            if subject.startswith("apple:"):
+                await self.apple_users.remove(subject[len("apple:"):])
+            for other in [t for t, s in self.wallet_sessions.items()
+                          if s.get("address") == subject and t != token]:
+                await self.wallet_sessions.remove(other)
+        except Exception:
+            logger.exception(
+                "account delete: removing the sign-in record or the other sessions "
+                "failed for %s; the deletion is not complete", subject)
             return web.json_response(
                 {"success": False, "error": "storage failure"}, status=503)
 
