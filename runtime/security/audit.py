@@ -270,10 +270,13 @@ class ContractAuditor:
         braces are matched once with a stack over the delimiters alone, the
         delimiter after each declaration is found by bisection, and a body is
         non-empty when its first character that is not whitespace comes before
-        its closing brace. The bodies' leading runs of whitespace never
-        overlap, so those searches together read each character once. The
+        its closing brace. Several declarations can share one body (``function
+        f() function g() { ... }``), so that answer is found once per body and
+        read back for the rest: the bodies' leading runs of whitespace never
+        overlap, and together those searches read each character once. The
         reading this replaces scanned to the end of the source for every
-        declaration whose braces never balanced.
+        declaration whose braces never balanced, and a first version of this
+        one searched the shared body's whitespace once per declaration.
         """
         import bisect
 
@@ -295,6 +298,7 @@ class ContractAuditor:
         opener = [len(positions)] * (len(positions) + 1)
         for i in range(len(positions) - 1, -1, -1):
             opener[i] = i if kinds[i] != "}" else opener[i + 1]
+        non_empty: dict[int, bool] = {}
         for m in declaration.finditer(code):
             i = opener[bisect.bisect_left(positions, m.end())]
             if i >= len(positions) or kinds[i] == ";":
@@ -305,8 +309,10 @@ class ContractAuditor:
             if end is None:
                 yield m, False
                 continue
-            first = cls._CODE_CHARACTER.search(code, start + 1, end)
-            yield m, first is not None
+            has = non_empty.get(start)
+            if has is None:
+                has = non_empty[start] = cls._CODE_CHARACTER.search(code, start + 1, end) is not None
+            yield m, has
 
     # ── Vulnerability checks ─────────────────────────────────────────
 
