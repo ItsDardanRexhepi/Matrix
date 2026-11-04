@@ -189,24 +189,245 @@ METHOD_FIELD = {pair: field for _r, _b, pair, field in ROUTES}
 METHOD_FIELD.update({("dispute_resolution", "file_dispute"): "claimant",
                      ("x402_payments", "create_payment"): "agent_id"})
 
+#: The state-changing operations a session reaches only through the
+#: dispatchers (no route of theirs is on the session allowlist), with the
+#: method's parameter naming who acts. The first fix held the 29 routes'
+#: operations and left these: a session cancelled another user's listing and
+#: subscription, rewrote their profile and posted under their name through
+#: /bridge/v1/action and capability invoke.
+DISPATCHED = {
+    ("agent_identity", "sell_training_data"): "seller",
+    ("agent_identity", "trade_model_access"): "seller",
+    ("brand_rewards", "distribute_reward"): "user",
+    ("cashback", "claim_cashback"): "user",
+    ("cross_border", "bridge_transfer"): "sender",
+    ("dao_management", "join_dao"): "member",
+    ("dao_management", "leave_dao"): "member",
+    ("dex", "remove_liquidity"): "provider",
+    ("dispute_resolution", "request_arbitration"): "claimant",
+    ("fundraising", "buy_carbon_credit"): "buyer",
+    ("fundraising", "buy_renewable_cert"): "buyer",
+    ("fundraising", "invest_green_bond"): "investor",
+    ("fundraising", "retire_carbon_credit"): "holder",
+    ("gaming", "attest_achievement"): "player",
+    ("gaming", "create_prediction_market"): "creator",
+    ("gaming", "enter_tournament"): "player",
+    ("gaming", "mint_game_asset"): "player",
+    ("gaming", "trade_item"): "seller",
+    ("governance", "approve_multisig"): "signer",
+    ("governance", "parameter_change"): "proposer",
+    ("governance", "propose_multisig"): "proposer",
+    ("marketplace", "cancel_listing"): "seller",
+    ("nft_services", "mint_soulbound"): "issuer",
+    ("nft_services", "process_sale"): "buyer",
+    ("privacy", "generate_zk_proof"): "prover",
+    ("rwa_tokenization", "claim_income"): "holder",
+    ("rwa_tokenization", "fractional_buy"): "buyer",
+    ("securities_exchange", "buy"): "buyer",
+    ("securities_exchange", "sell"): "seller",
+    ("social", "create_token_gate"): "creator",
+    ("social", "follow_wallet"): "follower",
+    ("social", "publish_post"): "author",
+    ("social", "send_encrypted_message"): "sender",
+    ("social", "setup_monetization"): "creator",
+    ("social", "update_profile"): "address",
+    ("staking", "claim_rewards"): "staker",
+    ("subscriptions", "cancel"): "user",
+    ("subscriptions", "create_plan"): "provider",
+}
+HELD = {**METHOD_FIELD, **DISPATCHED}
+
+#: Operations whose acting party is not a parameter: the method holds a
+#: dispatched call to the record's owner on the ``caller_identity`` the
+#: dispatcher threads (the owner field of the record it reads).
+BOUND_BY_THE_METHOD = {
+    ("agent_identity", "deregister_agent"): "owner",
+    ("agent_identity", "update_agent"): "owner",
+    ("insurance", "cancel_policy"): "holder",
+    ("insurance", "file_claim"): "holder",
+    ("insurance", "renew_coverage"): "holder",
+    ("ip_royalties", "grant_license"): "owner",
+    ("ip_royalties", "license_ip"): "owner",
+    ("nft_services", "configure_royalty"): "the party that configured it",
+}
+
+#: Parameters that name who an operation is addressed to, not who acts, and
+#: stay as the request writes them.
+COUNTERPARTIES = {
+    ("dispute_resolution", "file_dispute"): {"respondent"},
+    ("x402_payments", "create_payment"): {"recipient"},
+    ("agent_identity", "sell_training_data"): {"buyer"},
+    ("agent_identity", "trade_model_access"): {"buyer"},
+    ("cross_border", "bridge_transfer"): {"recipient"},
+    ("dispute_resolution", "request_arbitration"): {"respondent"},
+    ("gaming", "trade_item"): {"buyer"},
+    ("insurance", "cancel_policy"): {"caller"},
+    ("insurance", "file_claim"): {"caller"},
+    ("insurance", "renew_coverage"): {"caller"},
+    ("ip_royalties", "grant_license"): {"licensee"},
+    ("ip_royalties", "license_ip"): {"licensee"},
+    ("nft_services", "configure_royalty"): {"recipient"},
+    ("nft_services", "mint_soulbound"): {"recipient"},
+    ("nft_services", "process_sale"): {"seller"},
+    ("social", "follow_wallet"): {"target"},
+    ("social", "send_encrypted_message"): {"recipient"},
+}
+
+#: Words a method names an acting or addressed party by.
+ACTOR_WORDS = frozenset({
+    "owner", "creator", "user", "seller", "buyer", "staker", "sender", "from", "from_address",
+    "holder", "author", "wallet", "account", "address", "trader", "voter", "contributor",
+    "provider", "borrower", "lender", "issuer", "claimant", "juror", "prover", "developer",
+    "manufacturer", "agent_id", "payer", "subscriber", "member", "depositor", "investor",
+    "delegator", "delegate", "proposer", "participant", "player", "recipient", "to",
+    "user_address", "wallet_address", "caller", "actor", "operator", "renter", "licensee",
+    "licensor", "bidder", "follower", "voter_address", "beneficiary", "customer", "merchant",
+    "minter", "signer", "initiator", "requester", "respondent", "target",
+})
+
 
 def _actions():
     """One dispatchable action for each operation above, with its field."""
     from runtime.blockchain.services.service_dispatcher import ACTION_MAP
     out = {}
     for action, pair in sorted(ACTION_MAP.items()):
-        if pair in METHOD_FIELD and pair not in out.values():
+        if pair in HELD and pair not in out.values():
             out[action] = pair
-    return {a: METHOD_FIELD[p] for a, p in out.items()}
+    return {a: HELD[p] for a, p in out.items()}
 
 
 def test_every_operation_here_is_held_by_the_table():
-    """The table holds every operation the routes above run, under the
-    method's own name for the field."""
+    """The table holds every operation the routes above run and every
+    dispatched one, under the method's own name for the field."""
     from runtime.access_policy import SESSION_ACTS_AS
-    missing = {p: f for p, f in METHOD_FIELD.items() if f not in SESSION_ACTS_AS.get(p, ())}
+    missing = {p: f for p, f in HELD.items() if f not in SESSION_ACTS_AS.get(p, ())}
     assert missing == {}, missing
     assert _actions(), "precondition: some action runs a held operation"
+
+
+def _method(pair):
+    import importlib
+    import inspect
+
+    from runtime.blockchain.services import registry as reg
+    table = next(v for name in dir(reg) for v in [getattr(reg, name)]
+                 if isinstance(v, dict) and v
+                 and all(isinstance(k, str) and isinstance(x, tuple) for k, x in v.items()))
+    modpath, cls = table[pair[0]]
+    fn = getattr(getattr(importlib.import_module(modpath, package=reg._PACKAGE), cls), pair[1], None)
+    return fn, (set(inspect.signature(fn).parameters) if fn else set())
+
+
+def test_every_state_change_a_session_may_dispatch_names_who_acts():
+    """[control] Every state-changing operation a session may dispatch whose
+    method names a party is held: by the table, under that parameter, or by
+    the method itself on the dispatcher's ``caller_identity``; a party the
+    operation is addressed to is listed as such. At the previous commit 42
+    pairs were none of these."""
+    from gateway.session_routes import session_refused_route
+    from runtime import access_policy as ap
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP, _STATE_MODIFYING_ACTIONS
+    refused = (set(ap.REFUSED_TO_A_SESSION) | set(ap.REFUSED_ON_REQUEST) | set(ap.HANDS_THE_CALL_TO)
+               | set(ap.BOUND_TO_THE_CALLER) | set(ap.HELD_FOR_A_SESSION))
+    unbound, seen = {}, set()
+    for action in sorted(_STATE_MODIFYING_ACTIONS):
+        pair = ACTION_MAP.get(action)
+        if pair is None or pair in seen or pair in refused or session_refused_route(action):
+            continue
+        seen.add(pair)
+        fn, params = _method(pair)
+        if fn is None:
+            continue
+        named = params & ACTOR_WORDS
+        by_table = set(ap.SESSION_ACTS_AS.get(pair, ()))
+        by_method = "caller_identity" in params and pair in BOUND_BY_THE_METHOD
+        free = COUNTERPARTIES.get(pair, set())
+        left = named - by_table - free - ({"caller_identity"} if by_method else set())
+        if left and not by_method:
+            unbound[pair] = sorted(left)
+        assert not by_table or by_table & params, (pair, by_table, params)
+        assert free <= params, (pair, free - params)
+    assert unbound == {}, unbound
+    for pair in BOUND_BY_THE_METHOD:
+        _fn, params = _method(pair)
+        assert "caller_identity" in params, pair
+
+
+OWNED_BY_B = {"agent_id": "ag_1", "did": "did:x:1", "owner": B, "status": "active",
+              "agent_name": "n", "capabilities": [], "metadata": {}, "registered_at": 1,
+              "updated_at": 1, "version": 1, "erc_standard": "ERC-8004", "network": "test"}
+
+
+def _agents():
+    from runtime.blockchain.services.agent_identity.service import AgentIdentityService
+    svc = AgentIdentityService({})
+    svc._agents["ag_1"] = dict(OWNED_BY_B)
+    return svc
+
+
+@pytest.mark.parametrize("method, params", [
+    ("update_agent", {"updates": {"metadata": {"v": 2}}}),
+    ("deregister_agent", {}),
+])
+async def test_an_agent_is_changed_only_by_its_owner(method, params):
+    """[control] A dispatched call by another identity, or by none, is refused
+    and changes nothing; the owner's goes through; the platform's own call
+    (no caller behind it) is unchanged."""
+    for identity in (A, ""):
+        svc = _agents()
+        out = await getattr(svc, method)("ag_1", **params, caller_identity=identity,
+                                         caller_source="authenticated")
+        assert out.get("error_category") == "forbidden", out
+        assert svc._agents["ag_1"] == OWNED_BY_B
+    svc = _agents()
+    out = await getattr(svc, method)("ag_1", **params, caller_identity=B.upper().replace("0X", "0x"),
+                                     caller_source="authenticated")
+    assert out.get("error_category") != "forbidden", out
+    svc = _agents()
+    out = await getattr(svc, method)("ag_1", **params)
+    assert out.get("error_category") != "forbidden", out
+
+
+class _Registry:
+    def __init__(self, record):
+        self.record = record
+
+    async def get(self, ip_id):
+        return self.record
+
+
+def _ip():
+    from types import SimpleNamespace
+
+    from runtime.blockchain.services.ip_royalties.service import IPRoyaltyService
+    svc = IPRoyaltyService({})
+    svc._registry = _Registry({"ip_id": "ip_1", "owner": B, "ip_type": "patent", "title": "t"})
+    svc._web3 = SimpleNamespace(available=True, is_placeholder=lambda _c: False)
+    svc._ip_registry_contract = "0x" + "11" * 20
+    return svc
+
+
+@pytest.mark.parametrize("method, params", [
+    ("license_ip", {"terms": {"license_type": "non_exclusive"}}),
+    ("grant_license", {}),
+])
+async def test_a_license_is_the_owners_to_grant(method, params):
+    """[control] Through a dispatcher or the licensing route, a caller other
+    than the IP's owner, or none, is refused before a license is recorded; the
+    owner grants; the platform's own call is unchanged."""
+    from runtime.blockchain.services.ownership import OwnershipError
+    for identity in (A, ""):
+        svc = _ip()
+        with pytest.raises(OwnershipError):
+            await getattr(svc, method)("ip_1", C, **params, caller_identity=identity,
+                                       caller_source="authenticated")
+        assert svc._licenses == {}
+    svc = _ip()
+    out = await getattr(svc, method)("ip_1", C, **params, caller_identity=B, caller_source="route")
+    assert out.get("licensee") == C and len(svc._licenses) == 1
+    svc = _ip()
+    out = await getattr(svc, method)("ip_1", C, **params)
+    assert out.get("licensee") == C
 
 
 @pytest.mark.parametrize("action", sorted(_actions()))

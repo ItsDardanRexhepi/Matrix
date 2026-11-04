@@ -17,6 +17,7 @@ from runtime.blockchain.services.ip_royalties.royalty_enforcement import IPRoyal
 from runtime.blockchain.services.ip_royalties.distribution import RoyaltyDistribution
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 from runtime.auth.identity import same_caller
+from runtime.blockchain.services.ownership import assert_owner
 
 logger = logging.getLogger(__name__)
 
@@ -168,10 +169,22 @@ class IPRoyaltyService:
         )
         return ip_record
 
+    @staticmethod
+    def _held_to_the_owner(ip_record: dict, caller_identity: str,
+                           caller_source: str | None) -> None:
+        """A license is the owner's to grant. A call that carries
+        ``caller_source`` arrived with a caller behind it (a dispatcher, or the
+        licensing route) and is held to the identity the entry point bound for
+        it, ``""`` included, which is refused; a call with none (the platform's
+        own code) is not. The licensee is who the license is addressed to."""
+        if caller_source is not None:
+            assert_owner(caller_identity or None, ip_record, owner_field="owner", what="IP")
+
     async def license_ip(
         self, ip_id: str, licensee: str, terms: dict,
+        caller_identity: str = "", caller_source: str | None = None,
     ) -> dict:
-        """Grant a license for an IP asset.
+        """Grant a license for an IP asset, as its owner.
 
         Args:
             ip_id: The IP being licensed.
@@ -184,6 +197,7 @@ class IPRoyaltyService:
             License record.
         """
         ip_record = await self._registry.get(ip_id)
+        self._held_to_the_owner(ip_record, caller_identity, caller_source)
 
         existing = self._ip_licenses.get(ip_id, [])
         if len(existing) >= self._max_licenses:
@@ -237,8 +251,10 @@ class IPRoyaltyService:
     async def grant_license(
         self, ip_id: str, licensee: str, license_type: str = "non_exclusive",
         duration_days: int = 365, royalty_pct: float = 0.0,
+        caller_identity: str = "", caller_source: str | None = None,
     ) -> dict:
-        """Grant a license for an IP asset (expanded)."""
+        """Grant a license for an IP asset (expanded), as its owner: the IP
+        must be registered, and a dispatched call is the owner's."""
         if (
             not self._web3.available
             or self._web3.is_placeholder(self._ip_registry_contract)
@@ -247,6 +263,8 @@ class IPRoyaltyService:
                 "operation": "grant_license",
                 "requested": {"ip_id": ip_id, "licensee": licensee, "license_type": license_type},
             })
+        ip_record = await self._registry.get(ip_id)
+        self._held_to_the_owner(ip_record, caller_identity, caller_source)
         lic_id = f"glic_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
         record: dict[str, Any] = {

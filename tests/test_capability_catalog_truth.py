@@ -1186,6 +1186,10 @@ async def test_an_anonymous_chat_cannot_follow_disclose_or_read_the_wrapped_feed
                                       "params": {"follower": "0xVICTIM", "target": "0xSPAM"}}),
                ("request_execution", {"action": "selective_disclose",
                                       "params": {"did": "did:x", "credential_id": "c"}})]
+    # A session follows as itself: the follower is the identity the session is
+    # bound to (runtime/access_policy.py SESSION_ACTS_AS), here apple:sub.
+    own = [("request_execution", {"action": "social_follow",
+                                  "params": {"follower": "apple:sub", "target": "0xSPAM"}})]
 
     server = _session_server(tmp_path, SWEEP_CONFIG)
 
@@ -1215,24 +1219,29 @@ async def test_an_anonymous_chat_cannot_follow_disclose_or_read_the_wrapped_feed
         session = {"Authorization": "Bearer 0xTEST_SESSION"}
         # Positive controls first. Trinity executes no state change through
         # platform_action at any tier; the feed read is a signed-in read, and a
-        # signed-in caller's request_execution is not refused either.
-        signed_in = (["get_social_feed"], ["selective_disclose", "social_follow"])
+        # signed-in caller's request_execution is not refused either, except
+        # where it names somebody else as the one who acts: a session follows
+        # as the identity it is bound to, never as a follower the model writes
+        # (the operator's request names the party it acts for).
+        operator_in = (["get_social_feed"], ["selective_disclose", "social_follow"], ["social_follow"])
+        session_in = (["get_social_feed"], ["selective_disclose"], ["social_follow"])
         runs = {
-            "operator /bridge/v1/chat": ("/bridge/v1/chat", operator, signed_in),
-            "session /bridge/v1/chat": ("/bridge/v1/chat", session, signed_in),
-            "session /ws": ("/ws", session, signed_in),
-            "anonymous /bridge/v1/chat": ("/bridge/v1/chat", {}, ([], [])),
-            "anonymous /chat": ("/chat", {}, ([], [])),
-            "anonymous /ws": ("/ws", {}, ([], [])),
+            "operator /bridge/v1/chat": ("/bridge/v1/chat", operator, operator_in),
+            "session /bridge/v1/chat": ("/bridge/v1/chat", session, session_in),
+            "session /ws": ("/ws", session, session_in),
+            "anonymous /bridge/v1/chat": ("/bridge/v1/chat", {}, ([], [], [])),
+            "anonymous /chat": ("/chat", {}, ([], [], [])),
+            "anonymous /ws": ("/ws", {}, ([], [], [])),
         }
         reached, expected = {}, {}
         for n, (label, (surface, headers, want)) in enumerate(runs.items()):
             reached[label] = (await chat(client, surface, headers, direct, f"r{n}a"),
-                              await chat(client, surface, headers, handoff, f"r{n}b"))
+                              await chat(client, surface, headers, handoff, f"r{n}b"),
+                              await chat(client, surface, headers, own, f"r{n}c"))
             expected[label] = want
         assert reached == expected, "\n".join(
-            f"{k}: platform_action reached {v[0]}, request_execution reached {v[1]}"
-            for k, v in reached.items() if v != expected[k])
+            f"{k}: platform_action reached {v[0]}, request_execution reached {v[1]}, "
+            f"as itself {v[2]}" for k, v in reached.items() if v != expected[k])
 
 
 def test_the_wrapped_feed_read_is_behind_its_route():

@@ -273,7 +273,6 @@ KNOWN_FABRICATION_SHAPE = {
     "insurance/trigger_manager.py::TriggerManager.register_trigger",
     "ip_royalties/distribution.py::RoyaltyDistribution.claim",
     "ip_royalties/ip_registry.py::IPRegistry.register",
-    "ip_royalties/service.py::IPRoyaltyService.grant_license",
     "ip_royalties/service.py::IPRoyaltyService.execute_agreement",
     "loyalty/programs.py::ProgramManager.create_program",
     "marketplace/appeals.py::AppealProcess.file_appeal",
@@ -430,9 +429,14 @@ def test_the_measured_count_is_recorded():
     returned id name something, and it is what made the method visible. An
     entry arriving because a method stopped fabricating is worth as much
     explanation as one leaving for a structural reason.
+
+    39 -> 38. IPRoyaltyService.grant_license wrote a license record for any
+    `ip_id` the request named, consulting nothing. It now reads the IP's record
+    from the registry (an unknown IP is refused) and holds a dispatched call to
+    the IP's owner before it writes, so it awaits a read and leaves the shape.
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 39
-    assert len(find_fabrication_shape()) == 39
+    assert len(KNOWN_FABRICATION_SHAPE) == 38
+    assert len(find_fabrication_shape()) == 38
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -798,7 +802,7 @@ def test_the_shape_inventory_is_at_the_documented_baseline():
     for the measured +5 the call-form gap
     would add, which is deliberately NOT included pending adjudication."""
     current = find_fabrication_shape()
-    assert len(KNOWN_FABRICATION_SHAPE) == 39
+    assert len(KNOWN_FABRICATION_SHAPE) == 38
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current
 
 

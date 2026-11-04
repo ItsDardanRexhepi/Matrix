@@ -15,6 +15,7 @@ from typing import Any
 
 from runtime.blockchain.services.agent_identity.reputation import AgentReputation
 from runtime.blockchain.web3_manager import recorded_unsettled_response
+from runtime.auth.identity import same_caller
 from runtime.blockchain.services.agent_identity.update_monitor import UpdateMonitor
 
 logger = logging.getLogger(__name__)
@@ -178,14 +179,29 @@ class AgentIdentityService:
             "reputation": rep,
         }
 
+    @staticmethod
+    def _not_the_owner(agent: dict[str, Any], caller_identity: str,
+                       caller_source: str | None) -> dict[str, Any] | None:
+        """The refusal a call made for someone other than the agent's owner
+        gets, or None. A dispatched call carries ``caller_source`` and is held
+        to the identity the entry point bound for it (``""`` when it bound
+        none, which is refused, never read as the owner); a call with no caller
+        behind it (``caller_source`` None: the platform's own code) is not."""
+        if caller_source is None or same_caller(caller_identity, agent.get("owner")):
+            return None
+        return {"status": "error", "error_category": "forbidden",
+                "error": "Only the agent's owner may change or deregister it"}
+
     async def update_agent(
-        self, agent_id: str, updates: dict[str, Any]
+        self, agent_id: str, updates: dict[str, Any],
+        caller_identity: str = "", caller_source: str | None = None,
     ) -> dict[str, Any]:
         """
         Update an agent's metadata, capabilities, or name.
 
         Does not allow changing owner or agent_id. For capability changes,
-        routes through the UpdateMonitor for safety validation.
+        routes through the UpdateMonitor for safety validation. A dispatched
+        call is held to the agent's owner (``_not_the_owner``).
 
         Args:
             agent_id: The agent identifier.
@@ -197,6 +213,9 @@ class AgentIdentityService:
         agent = self._agents.get(agent_id)
         if agent is None:
             return {"status": "error", "error": f"Agent not found: {agent_id}"}
+        refused = self._not_the_owner(agent, caller_identity, caller_source)
+        if refused is not None:
+            return refused
 
         if agent["status"] == "deregistered":
             return {"status": "error", "error": "Cannot update a deregistered agent"}
@@ -261,9 +280,12 @@ class AgentIdentityService:
             "status": "updated",
         }
 
-    async def deregister_agent(self, agent_id: str) -> dict[str, Any]:
+    async def deregister_agent(
+        self, agent_id: str, caller_identity: str = "", caller_source: str | None = None,
+    ) -> dict[str, Any]:
         """
-        Deregister an agent, marking it inactive on-chain.
+        Deregister an agent, marking it inactive on-chain. A dispatched call
+        is held to the agent's owner (``_not_the_owner``).
 
         Args:
             agent_id: The agent identifier.
@@ -274,6 +296,9 @@ class AgentIdentityService:
         agent = self._agents.get(agent_id)
         if agent is None:
             return {"status": "error", "error": f"Agent not found: {agent_id}"}
+        refused = self._not_the_owner(agent, caller_identity, caller_source)
+        if refused is not None:
+            return refused
 
         if agent["status"] == "deregistered":
             return {"status": "error", "error": "Agent is already deregistered"}

@@ -45,15 +45,29 @@ def _seconds(fn, *args):
 
 
 @pytest.mark.parametrize("source", [
-    "function{" * 6000,                       # braces never balance
-    "function{" * 6000 + "}" * 6000,          # balanced, nested
-    "function f() " * 6000,                   # no brace and no semicolon at all
+    pytest.param("function{" * 6000, id="braces never balance"),
+    pytest.param("function{" * 6000 + "}" * 6000, id="balanced, nested"),
+    pytest.param("function f() " * 6000, id="no brace and no semicolon at all"),
+    # Many declarations sharing one body of whitespace: 860 KB took 27 s
+    # when the body's whitespace was searched once per declaration.
+    pytest.param("function f() " * 20000 + "{" + " " * 600000 + "}", id="one shared body of spaces, 860 KB"),
+    pytest.param("function f() " * 20000 + "{" + " \t" * 300000 + "x = 1; }",
+                 id="one shared body with code at its end, 860 KB"),
 ])
 def test_the_body_reading_is_linear_in_the_source(source):
-    """[control] 54 KB: seconds on the previous commit, milliseconds now."""
+    """[control] 54 KB to 860 KB: seconds on the previous commit, milliseconds now."""
     for fn in (ContractAuditor.has_executable_logic, ContractAuditor.implemented_functions):
         assert _seconds(fn, source) < 0.5, fn.__name__
     assert _seconds(ContractAuditor().audit, source) < 2.0
+
+
+def test_declarations_sharing_a_body_are_judged_by_it():
+    """[guard] The one answer for a shared body is the same for every
+    declaration that shares it, empty or not."""
+    assert ContractAuditor.has_executable_logic("function f() function g() {   }") is False
+    assert ContractAuditor.implemented_functions("function f() function g() {   }") == set()
+    assert ContractAuditor.has_executable_logic("function f() function g() { n = 1; }") is True
+    assert ContractAuditor.implemented_functions("function f() function g() { n = 1; }") == {"f", "g"}
 
 
 def test_a_string_with_comment_marks_does_not_erase_code():
