@@ -2824,11 +2824,19 @@ class ServiceRoutes:
                 text=json.dumps({"error": "ipId, recipient and terms are required"}),
                 content_type="application/json",
             )
+        # The license is the IP owner's to grant: the owner is the identity the
+        # security middleware bound for this request (the session's, or the
+        # one an operator request named), the same idiom as the insurance
+        # claim; a request that bound none is refused by the service.
+        from gateway.security_gate import current_request_security
+        authed = str((current_request_security() or {}).get("wallet") or "")
         result = await self._call(
             "ip_royalties", "license_ip",
             ip_id=ip_id,
             licensee=recipient,
             terms=terms,
+            caller_identity=authed,
+            caller_source="route",
         )
         return self._ok(result)
 

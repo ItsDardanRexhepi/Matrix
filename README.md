@@ -221,7 +221,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 7,453 tests, run against the versions
+automated suite of 7,508 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -624,14 +624,21 @@ check behind it:
   operator check
 - **A user session acts only as itself.** Where a request names who acts —
   a listing's seller, a purchase's buyer, the user whose loyalty points are
-  redeemed, a staker, a contributor, a proposer, a borrower, a payment's
-  payer, the creator of a community, a DAO or an asset — a user session must
-  name the identity it is bound to, in any spelling of it, on the `/api/v1`
-  route and on every dispatcher that runs the same operation by name; naming
-  anyone else, or no one, is refused before the service runs. A session
+  redeemed or whose subscription is cancelled, a staker, a contributor, a
+  proposer, a borrower, a payment's payer, a post's author, the address of
+  the profile that is changed, the creator of a community, a DAO or an asset
+  — a user session must name the identity it is bound to, in any spelling of
+  it, on the `/api/v1` route and on every dispatcher that runs the same
+  operation by name; naming anyone else, or no one, is refused before the
+  service runs. That holds for every state-changing operation a session may
+  dispatch whose method names who acts, 69 operations of 25 services
+  (`runtime/access_policy.py`, `SESSION_ACTS_AS`), and a test walks them all
+  so that none can be added unheld; where the acting party is not a
+  parameter of the operation at all — an insurance policy's holder, an
+  agent's owner, an IP's owner — the service holds a dispatched call to the
+  record's owner, on the identity the dispatcher threads to it. A session
   bound to no wallet acts as its own `apple:<sub>`, and an address it has not
   proven is not its own. The operator key still names the party it acts for
-  (`runtime/access_policy.py`, `SESSION_ACTS_AS`)
 - **A record names who the platform resolved, not who the request said.**
   The attestation, the decline record, the broadcast record and the public
   live feed are all attributed to the identity the entry point bound for

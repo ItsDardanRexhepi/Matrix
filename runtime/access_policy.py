@@ -470,7 +470,13 @@ def _unbound(fields: tuple[str, ...], params: object, identity: object) -> str |
 # spelling of it, and naming another, or none, is refused before the service
 # runs. A session bound to no wallet address acts as its own subject
 # (``apple:<sub>``) and names no address it has not proven. The operator key
-# still names the party it acts for.
+# still names the party it acts for. An operation whose acting party is not a
+# parameter of its method (an insurance policy's holder, an agent's owner, an
+# IP's owner, the party that configured a royalty) is held by the method
+# itself, on the identity the dispatcher threads as ``caller_identity``;
+# tests/test_a_session_acts_only_as_itself.py walks every state-changing
+# operation a session may dispatch and fails on one that is neither here nor
+# held that way.
 SESSION_ACTS_AS: dict[tuple[str, str], tuple[str, ...]] = {
     ("agent_identity", "register_agent"): ("owner",),
     ("dao_management", "create_dao"): ("creator",),
@@ -505,6 +511,53 @@ SESSION_ACTS_AS: dict[tuple[str, str], tuple[str, ...]] = {
     ("supply_chain", "register_product"): ("manufacturer",),
     # The payer of an x402 payment is the method's `agent_id`.
     ("x402_payments", "create_payment"): ("agent_id",),
+    # The operations below have no route of their own on the session allowlist:
+    # a session reaches them only through the dispatchers (/bridge/v1/action,
+    # capability invoke, Trinity's request_execution), whose params bind to the
+    # method's own parameters. Each is held to the party that acts: a sale or a
+    # trade to its seller, a purchase to its buyer, a claim to its holder, a
+    # record to the account it is written on. The other party a request names
+    # (a buyer paying a seller's price, a message's recipient, a soulbound
+    # token's recipient, an arbitration's respondent, a follow's target) is who
+    # the operation is addressed to, not who acts, and stays as written.
+    ("agent_identity", "sell_training_data"): ("seller",),
+    ("agent_identity", "trade_model_access"): ("seller",),
+    ("brand_rewards", "distribute_reward"): ("user",),
+    ("cashback", "claim_cashback"): ("user",),
+    ("cross_border", "bridge_transfer"): ("sender",),
+    ("dao_management", "join_dao"): ("member",),
+    ("dao_management", "leave_dao"): ("member",),
+    ("dex", "remove_liquidity"): ("provider",),
+    ("dispute_resolution", "request_arbitration"): ("claimant",),
+    ("fundraising", "buy_carbon_credit"): ("buyer",),
+    ("fundraising", "buy_renewable_cert"): ("buyer",),
+    ("fundraising", "invest_green_bond"): ("investor",),
+    ("fundraising", "retire_carbon_credit"): ("holder",),
+    ("gaming", "attest_achievement"): ("player",),
+    ("gaming", "create_prediction_market"): ("creator",),
+    ("gaming", "enter_tournament"): ("player",),
+    ("gaming", "mint_game_asset"): ("player",),
+    ("gaming", "trade_item"): ("seller",),
+    ("governance", "approve_multisig"): ("signer",),
+    ("governance", "parameter_change"): ("proposer",),
+    ("governance", "propose_multisig"): ("proposer",),
+    ("marketplace", "cancel_listing"): ("seller",),
+    ("nft_services", "mint_soulbound"): ("issuer",),
+    ("nft_services", "process_sale"): ("buyer",),
+    ("privacy", "generate_zk_proof"): ("prover",),
+    ("rwa_tokenization", "claim_income"): ("holder",),
+    ("rwa_tokenization", "fractional_buy"): ("buyer",),
+    ("securities_exchange", "buy"): ("buyer",),
+    ("securities_exchange", "sell"): ("seller",),
+    ("social", "create_token_gate"): ("creator",),
+    ("social", "follow_wallet"): ("follower",),
+    ("social", "publish_post"): ("author",),
+    ("social", "send_encrypted_message"): ("sender",),
+    ("social", "setup_monetization"): ("creator",),
+    ("social", "update_profile"): ("address",),
+    ("staking", "claim_rewards"): ("staker",),
+    ("subscriptions", "cancel"): ("user",),
+    ("subscriptions", "create_plan"): ("provider",),
 }
 
 

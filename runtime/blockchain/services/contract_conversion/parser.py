@@ -285,15 +285,37 @@ class SourceParser:
         #
         # Two steps instead of one clever regex: find the `def`, then read the
         # contiguous decorator lines immediately above it.
-        def_pattern = re.compile(
-            r"^[ \t]*def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^:]+))?\s*:",
-            re.MULTILINE,
-        )
+        #
+        # READ ONCE. The header was one pattern,
+        # `def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^:]+))?\s*:`, and for a `def`
+        # line whose parameter list never closes `[^)]*` ran to the end of the
+        # source before the match failed, once per such line, so a source of
+        # `def f(` lines cost its length squared: 42 KB took three seconds on
+        # the convert route a session reaches. The header is read in pieces
+        # now, each by a search that moves forward: the `def` and the `(`; the
+        # first `)` after it, which no later header can find if this one
+        # cannot; then an optional `->` and the first `:`, the same. The line
+        # a header is on is counted from the previous header, not from the
+        # start, and the decorators are read on the same lines the count
+        # names (`split("\n")`, where `splitlines` also broke on form feeds
+        # and other separators and put the count and the lines out of step).
+        def_header = re.compile(r"^([ \t]*)def\s+(\w+)\s*\(", re.MULTILINE)
         decorator_line = re.compile(r"^[ \t]*@(\w+)")
-        source_lines = source.splitlines()
+        source_lines = source.split("\n")
+        counted_to = 0
+        line_no = 0
 
-        for m in def_pattern.finditer(source):
-            line_no = source.count("\n", 0, m.start())
+        for h in def_header.finditer(source):
+            close = source.find(")", h.end())
+            if close < 0:
+                break
+            header_end, returns = self._vyper_header_end(source, close + 1)
+            if header_end == -2:
+                break
+            if header_end < 0:
+                continue
+            line_no += source.count("\n", counted_to, h.start())
+            counted_to = h.start()
             decorators: list[str] = []
             i = line_no - 1
             while i >= 0:
@@ -310,9 +332,8 @@ class SourceParser:
                 # Not a Vyper external/internal function — skip, as the old
                 # pattern did by requiring a leading decorator.
                 continue
-            name = m.group(1)
-            params_raw = m.group(2).strip()
-            returns = m.group(3).strip() if m.group(3) else None
+            name = h.group(2)
+            params_raw = source[h.end():close].strip()
 
             visibility = "public"
             mutability = "nonpayable"
@@ -325,7 +346,7 @@ class SourceParser:
             params = self._parse_vyper_params(params_raw)
 
             # Extract indented body
-            body = self._extract_vyper_body(source, m.end())
+            body = self._extract_vyper_body(source, header_end, len(h.group(1)))
 
             ir["functions"].append({
                 "name": name if name != "__init__" else "constructor",
@@ -568,15 +589,47 @@ class SourceParser:
         return source[start + 1:].strip()
 
     @staticmethod
-    def _extract_vyper_body(source: str, start_pos: int) -> str:
-        """Extract indented body after a Vyper function definition."""
-        lines = source[start_pos:].split("\n")
-        body_lines: list[str] = []
-        for line in lines[1:]:  # skip the colon line
-            if line and not line[0].isspace() and line.strip():
+    def _vyper_header_end(source: str, pos: int) -> tuple[int, str | None]:
+        """Where a Vyper `def` header ends, read from just after its `)`: the
+        position after the `:`, with the return type between `->` and that
+        `:` (None when there is none). -1 when what follows is not a header's
+        end; -2 when no `:` follows anywhere, which ends no later header
+        either. Reads forward only."""
+        n = len(source)
+        i = pos
+        while i < n and source[i].isspace():
+            i += 1
+        if source.startswith("->", i):
+            colon = source.find(":", i + 2)
+            if colon < 0:
+                return -2, None
+            # An empty type (`-> :`) is read as none, as the pattern this
+            # replaces read it.
+            return colon + 1, (source[i + 2:colon].strip() or None)
+        if i < n and source[i] == ":":
+            return i + 1, None
+        return -1, None
+
+    @staticmethod
+    def _extract_vyper_body(source: str, start_pos: int, indent: int = 0) -> str:
+        """The indented body after a Vyper function header that ends at
+        *start_pos*: the lines after the header's, up to the first line with
+        text that is indented no deeper than the header (*indent* characters).
+        Read forward from the header, never from a copy of the rest of the
+        source, so a source of many functions is read once."""
+        n = len(source)
+        nl = source.find("\n", start_pos)
+        if nl < 0:
+            return ""
+        start = end = nl + 1
+        while end < n:
+            nl = source.find("\n", end)
+            line_end = n if nl < 0 else nl
+            line = source[end:line_end]
+            if line.strip() and not (len(line) > indent and line[:indent + 1].isspace()):
                 break
-            body_lines.append(line)
-        return "\n".join(body_lines).strip()
+            end = line_end if nl < 0 else nl + 1
+        return source[start:end].strip()
 
     @staticmethod
     def _layout_prefix(source: str, pos: int) -> tuple[str, bool] | None:
